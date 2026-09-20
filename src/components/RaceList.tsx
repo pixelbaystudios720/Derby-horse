@@ -102,7 +102,7 @@ export const RaceList: React.FC<RaceListProps> = ({
     }
 
     if (filterStatus === 'upcoming') {
-      return race.status === 'UPCOMING' || race.status === 'OPEN' || race.status === 'OPEN_FOR_BETTING' || race.status === 'DRAFT';
+      return (race.status === 'UPCOMING' || race.status === 'OPEN' || !race.status) && race.status !== 'DRAFT';
     }
     if (filterStatus === 'live') {
       return race.status === 'LIVE' || race.status === 'OPEN_FOR_BETTING';
@@ -110,7 +110,8 @@ export const RaceList: React.FC<RaceListProps> = ({
     if (filterStatus === 'resulted') {
       return race.status === 'RESULTED' || race.status === 'CLOSED';
     }
-    return true;
+    // Exclude draft from user view
+    return race.status !== 'DRAFT';
   });
 
   // 1st: Live In-Play Races (Open for live betting)
@@ -118,10 +119,11 @@ export const RaceList: React.FC<RaceListProps> = ({
     (r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING'
   );
 
-  // 2nd: Upcoming Races (Scheduled for today, opened sequentially by admin)
+  // 2nd: Upcoming Races (Scheduled for today, published for user view with odds closed)
   const upcomingRaces = filteredRaces.filter(
     (r) =>
-      (r.status === 'UPCOMING' || r.status === 'OPEN' || r.status === 'DRAFT' || !r.status) &&
+      (r.status === 'UPCOMING' || r.status === 'OPEN' || !r.status) &&
+      r.status !== 'DRAFT' &&
       r.status !== 'RESULTED' &&
       r.status !== 'CLOSED' &&
       r.status !== 'LIVE' &&
@@ -664,6 +666,12 @@ export const RaceList: React.FC<RaceListProps> = ({
                                   {race.distance}
                                 </span>
                               )}
+                            </div>
+
+                            {/* Flash message: "Betting to start 30 minutes prior to the race" */}
+                            <div className="flex items-center gap-1.5 py-1 px-2.5 rounded-xl bg-gradient-to-r from-amber-500/25 via-yellow-500/15 to-amber-500/25 border border-amber-500/50 text-amber-200 text-[11px] sm:text-xs font-black uppercase tracking-wide animate-pulse shadow-md">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span className="truncate">⚡ Betting to start 30 minutes prior to the race</span>
                             </div>
 
                             {/* Bottom Line: Post Time & Runners Count */}

@@ -313,17 +313,17 @@ export const RaceDetail: React.FC<RaceDetailProps> = ({
           )}
 
           {isUpcomingFixture && (
-            <div className="p-3 rounded-xl bg-[#091510] border border-emerald-900/60 text-slate-300 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-md">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-[#e5b869] shrink-0" />
+            <div className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/25 via-yellow-500/15 to-amber-500/25 border border-amber-500/50 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-lg animate-pulse">
+              <div className="flex items-center gap-2.5">
+                <Sparkles className="w-5 h-5 text-amber-400 shrink-0" />
                 <div>
-                  <p className="font-bold text-white text-xs">Official Race Card (Runners Field)</p>
-                  <p className="text-[11px] text-slate-400">Betting opens approximately 30–45 minutes before post time ({race.race_time}).</p>
+                  <p className="font-black text-amber-300 text-xs sm:text-sm uppercase tracking-wide">⚡ Betting to start 30 minutes prior to the race</p>
+                  <p className="text-[11px] text-slate-300">Official Race Card • Post Time: {race.race_time}</p>
                 </div>
               </div>
-              <span className="px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-700 text-[#e5b869] text-[10px] font-mono font-bold self-start sm:self-auto shrink-0 flex items-center gap-1">
-                <Lock className="w-3 h-3 text-slate-400" />
-                <span>Pre-Race Fixture</span>
+              <span className="px-3 py-1 rounded-xl bg-slate-900/90 border border-amber-500/40 text-amber-300 text-[10px] font-mono font-black self-start sm:self-auto shrink-0 flex items-center gap-1 shadow">
+                <Lock className="w-3 h-3 text-amber-400" />
+                <span>ODDS CLOSED</span>
               </span>
             </div>
           )}
