@@ -543,6 +543,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Load Admin Data
   const loadAdminData = async (isBackground = false) => {
+    // Don't waste CPU/invocations if the browser tab is hidden in background
+    if (isBackground && typeof document !== 'undefined' && document.hidden) {
+      return;
+    }
+
     try {
       if (!isBackground && !stats) setIsLoading(true);
       const [statsData, usersData, betsData, depositsData, withdrawalsData, centersData, daysData, sysSettings] = await Promise.all([
@@ -585,8 +590,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       loadAdminData(true);
     });
 
+    const handleFocus = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadAdminData(true);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
     return () => {
       unsubscribe();
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
     };
   }, []);
 

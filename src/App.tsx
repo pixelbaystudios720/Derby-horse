@@ -187,6 +187,11 @@ export default function App() {
 
   // Fetch races & banners (100% flicker-free with deep equality check)
   const loadRacesAndBanners = async (isBackground = false) => {
+    // Don't waste CPU/invocations if the browser tab is hidden in background
+    if (isBackground && typeof document !== 'undefined' && document.hidden) {
+      return;
+    }
+
     try {
       if (!isBackground && races.length === 0) {
         setIsLoadingRaces(true);
@@ -216,10 +221,20 @@ export default function App() {
   useEffect(() => {
     loadRacesAndBanners(false);
 
-    // Auto-load polling every 3.5s so data updates in real-time without manual page refresh
+    // Smart Polling: Polls every 12s when tab is active (pauses automatically in background tabs)
     const autoPoll = setInterval(() => {
       loadRacesAndBanners(true);
-    }, 3500);
+    }, 12000);
+
+    // Instantly refresh when user switches back to this tab
+    const handleVisibilityOrFocus = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadRacesAndBanners(true);
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
 
     // Subscribe to realtime odds changes and suspension updates
     const unsubscribe = realtimeOdds.subscribe((payload) => {
@@ -275,6 +290,8 @@ export default function App() {
 
     return () => {
       clearInterval(autoPoll);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       unsubscribe();
     };
   }, []);
@@ -301,6 +318,12 @@ export default function App() {
       setWithdrawalRequests([]);
       return;
     }
+
+    // Don't waste CPU/invocations if the browser tab is hidden in background
+    if (isBackground && typeof document !== 'undefined' && document.hidden) {
+      return;
+    }
+
     try {
       if (!isBackground) {
         setIsLoadingBets(true);
@@ -341,14 +364,26 @@ export default function App() {
         loadUserFinancials(true);
       });
 
-      // Background polling every 4s for instant multi-device / remote admin approval reflection
+      // Background polling every 15s when active tab is open
       const pollInterval = setInterval(() => {
         loadUserFinancials(true);
-      }, 4000);
+      }, 15000);
+
+      // Instantly refresh financials when user returns to tab
+      const handleVisibilityOrFocus = () => {
+        if (typeof document !== 'undefined' && !document.hidden) {
+          loadUserFinancials(true);
+        }
+      };
+
+      window.addEventListener('focus', handleVisibilityOrFocus);
+      document.addEventListener('visibilitychange', handleVisibilityOrFocus);
 
       return () => {
         unsubscribe();
         clearInterval(pollInterval);
+        window.removeEventListener('focus', handleVisibilityOrFocus);
+        document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
       };
     }
   }, [user?.id]);
