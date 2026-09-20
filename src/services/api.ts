@@ -1799,6 +1799,12 @@ export const api = {
         const data = await res.json();
         if (data.race) {
           this.saveLocalRace(data.race);
+          realtimeOdds.broadcast({
+            event: 'ODDS_UPDATED',
+            race_id: data.race.id,
+            race: data.race,
+            timestamp: Date.now(),
+          });
           return data.race;
         }
       }
@@ -1812,6 +1818,12 @@ export const api = {
       horses: raceData.horses || existing.horses,
     };
     this.saveLocalRace(updatedRace);
+    realtimeOdds.broadcast({
+      event: 'ODDS_UPDATED',
+      race_id: updatedRace.id,
+      race: updatedRace,
+      timestamp: Date.now(),
+    });
     return updatedRace;
   },
 
@@ -1842,6 +1854,12 @@ export const api = {
         const data = await res.json();
         if (data.race) {
           this.saveLocalRace(data.race);
+          realtimeOdds.broadcast({
+            event: 'RACE_STATUS_CHANGED',
+            race_id: data.race.id,
+            race: data.race,
+            timestamp: Date.now(),
+          });
           return data.race;
         }
       }
@@ -1851,6 +1869,12 @@ export const api = {
     const race = allRaces.find((r) => r.id === raceId) || allRaces[0];
     const updated = { ...race, status };
     this.saveLocalRace(updated);
+    realtimeOdds.broadcast({
+      event: 'RACE_STATUS_CHANGED',
+      race_id: updated.id,
+      race: updated,
+      timestamp: Date.now(),
+    });
     return updated;
   },
 

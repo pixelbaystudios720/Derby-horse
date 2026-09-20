@@ -221,10 +221,12 @@ export default function App() {
   useEffect(() => {
     loadRacesAndBanners(false);
 
-    // Smart Polling: Polls every 12s when tab is active (pauses automatically in background tabs)
+    // Smart Polling: Polls every 3s when tab is actively visible (pauses automatically when tab is in background)
     const autoPoll = setInterval(() => {
-      loadRacesAndBanners(true);
-    }, 12000);
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadRacesAndBanners(true);
+      }
+    }, 3000);
 
     // Instantly refresh when user switches back to this tab
     const handleVisibilityOrFocus = () => {
