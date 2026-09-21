@@ -1263,10 +1263,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setNewRaceCenterId(res.race_day.center_id);
         setNewRaceDayId(res.race_day.id);
         setNewVenue(`${center.name} Turf Club`);
+        setNewRaceNo(1);
+        setActiveTab('add_race');
       }
 
       setNewDayTitle('');
-      notify(`✅ Race Day Card "${title}" Created & Published!`, 'success');
+      notify(`✅ Race Day Card "${title}" Created & Published! Directing to Add Race...`, 'success');
       loadAdminData(true);
     } catch (err: any) {
       notify(err.message || 'Failed to create race day', 'error');
@@ -4833,11 +4835,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                   <button
                     type="submit"
+                    id="btn-create-publish-race-day-card"
                     disabled={isLoading}
-                    className="w-full py-2 rounded-lg bg-gradient-to-r from-amber-600 to-yellow-600 text-slate-950 font-black text-xs transition cursor-pointer flex items-center justify-center gap-1 shadow"
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-1.5 shadow-lg active:scale-95 disabled:opacity-50"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Create & Publish Race Card</span>
+                    <Plus className="w-4 h-4 text-slate-950 stroke-[3]" />
+                    <span>+ Create & Publish Card ➔ Add New Race</span>
                   </button>
                 </form>
 
