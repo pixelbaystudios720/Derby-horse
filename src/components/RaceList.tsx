@@ -53,11 +53,16 @@ export const RaceList: React.FC<RaceListProps> = ({
   const [selectedCenter, setSelectedCenter] = useState<string>('all');
   const [showAllNewRacing, setShowAllNewRacing] = useState(false);
 
-  // Dynamically extract active centers from today's races
+  // User App Race List strictly displays published races (excluding drafts)
+  const publicRaces = useMemo(() => {
+    return races.filter((r) => r.status && r.status !== 'DRAFT');
+  }, [races]);
+
+  // Dynamically extract active centers strictly from today's published races
   const activeCentersWithRaces = useMemo(() => {
     const centerMap = new Map<string, { id: string; name: string; count: number; hasLive: boolean }>();
     
-    races.forEach((r) => {
+    publicRaces.forEach((r) => {
       const venueName = r.venue ? r.venue.trim().toUpperCase() : 'MAIN TURF';
       const centerKey = (r.center_id || venueName).toLowerCase();
       
@@ -77,7 +82,7 @@ export const RaceList: React.FC<RaceListProps> = ({
     });
 
     return Array.from(centerMap.values());
-  }, [races]);
+  }, [publicRaces]);
 
   const toggleFavorite = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -85,34 +90,36 @@ export const RaceList: React.FC<RaceListProps> = ({
     setFavorites((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const filteredRaces = races.filter((race) => {
-    const matchesSearch =
-      race.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      race.venue.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      race.horses.some((h) => h.name.toLowerCase().includes(searchQuery.toLowerCase()) || h.jockey.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredRaces = useMemo(() => {
+    return publicRaces.filter((race) => {
+      const matchesSearch =
+        !searchQuery ||
+        race.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        race.venue.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        race.horses.some((h) => h.name.toLowerCase().includes(searchQuery.toLowerCase()) || h.jockey.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    if (!matchesSearch) return false;
+      if (!matchesSearch) return false;
 
-    if (selectedCenter !== 'all') {
-      const centerNameKey = selectedCenter.replace('cntr_', '').toLowerCase();
-      const matchesCenter = 
-        race.center_id === selectedCenter || 
-        (race.venue && race.venue.toLowerCase().includes(centerNameKey));
-      if (!matchesCenter) return false;
-    }
+      if (selectedCenter !== 'all') {
+        const centerNameKey = selectedCenter.replace('cntr_', '').toLowerCase();
+        const matchesCenter = 
+          race.center_id === selectedCenter || 
+          (race.venue && race.venue.toLowerCase().includes(centerNameKey));
+        if (!matchesCenter) return false;
+      }
 
-    if (filterStatus === 'upcoming') {
-      return (race.status === 'UPCOMING' || race.status === 'OPEN' || !race.status) && race.status !== 'DRAFT';
-    }
-    if (filterStatus === 'live') {
-      return race.status === 'LIVE' || race.status === 'OPEN_FOR_BETTING';
-    }
-    if (filterStatus === 'resulted') {
-      return race.status === 'RESULTED' || race.status === 'CLOSED';
-    }
-    // Exclude draft from user view
-    return race.status !== 'DRAFT';
-  });
+      if (filterStatus === 'upcoming') {
+        return (race.status === 'UPCOMING' || race.status === 'OPEN' || !race.status);
+      }
+      if (filterStatus === 'live') {
+        return race.status === 'LIVE' || race.status === 'OPEN_FOR_BETTING';
+      }
+      if (filterStatus === 'resulted') {
+        return race.status === 'RESULTED' || race.status === 'CLOSED';
+      }
+      return true;
+    });
+  }, [publicRaces, searchQuery, selectedCenter, filterStatus]);
 
   // 1st: Live In-Play Races (Open for live betting)
   const liveRaces = filteredRaces.filter(
@@ -123,7 +130,6 @@ export const RaceList: React.FC<RaceListProps> = ({
   const upcomingRaces = filteredRaces.filter(
     (r) =>
       (r.status === 'UPCOMING' || r.status === 'OPEN' || !r.status) &&
-      r.status !== 'DRAFT' &&
       r.status !== 'RESULTED' &&
       r.status !== 'CLOSED' &&
       r.status !== 'LIVE' &&
@@ -134,6 +140,20 @@ export const RaceList: React.FC<RaceListProps> = ({
   const recentResultsRaces = filteredRaces.filter(
     (r) => r.status === 'RESULTED' || r.status === 'CLOSED'
   );
+
+  // Market Movers only from strictly LIVE in-play races
+  const liveMarketMovers = useMemo(() => {
+    const liveOrOpenRaces = publicRaces.filter((r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING');
+    return liveOrOpenRaces
+      .flatMap((r) => (r.horses || []).map((h) => ({ horse: h, race: r })))
+      .filter(({ horse }) => !horse.is_suspended && !horse.is_scratched && (horse.win_odds || 0) > 0)
+      .slice(0, 4);
+  }, [publicRaces]);
+
+  // Featured Live Race for Turf Insights
+  const featuredLiveRace = useMemo(() => {
+    return publicRaces.find((r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING') || (publicRaces.length > 0 ? publicRaces[0] : null);
+  }, [publicRaces]);
 
   const getStatusBadge = (status: RaceStatus) => {
     switch (status) {
@@ -197,7 +217,7 @@ export const RaceList: React.FC<RaceListProps> = ({
       )}
       
       {/* ---------------- ACTIVE CENTER / TODAY'S RACE CARD BANNER ---------------- */}
-      {races.length > 0 && (
+      {publicRaces.length > 0 && (
         activeCentersWithRaces.length > 1 ? (
           // Multi-center day (Rare occasion: 2+ centers hosting races today)
           <div className="space-y-2 bg-[#06100b] p-3 rounded-2xl border border-emerald-900/60 shadow-lg">
@@ -222,7 +242,7 @@ export const RaceList: React.FC<RaceListProps> = ({
               >
                 <span>ALL VENUES</span>
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950/40 text-slate-300">
-                  {races.length}
+                  {publicRaces.length}
                 </span>
               </button>
               {activeCentersWithRaces.map((cntr) => {
@@ -265,7 +285,7 @@ export const RaceList: React.FC<RaceListProps> = ({
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-sm sm:text-base font-black text-white tracking-tight flex items-center gap-1.5">
-                    <span>{activeCentersWithRaces[0]?.name || (races[0]?.venue ? races[0].venue.toUpperCase() : 'TURF CLUB')}</span>
+                    <span>{activeCentersWithRaces[0]?.name || (publicRaces[0]?.venue ? publicRaces[0].venue.toUpperCase() : 'TURF CLUB')}</span>
                     <span className="text-emerald-400">•</span>
                     <span className="text-[#e5b869]">TODAY'S RACE CARD</span>
                   </h2>
@@ -277,14 +297,14 @@ export const RaceList: React.FC<RaceListProps> = ({
                   )}
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  {activeCentersWithRaces[0]?.count || races.length} Fixtures Scheduled for today • Live Decimal Odds & Pre-Post Betting Open
+                  {activeCentersWithRaces[0]?.count || publicRaces.length} Fixtures Scheduled for today • Live Decimal Odds & Pre-Post Betting Open
                 </p>
               </div>
             </div>
             
             <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
               <span className="px-2.5 py-1 rounded-lg bg-emerald-950/80 border border-emerald-800/60 text-emerald-300 font-mono font-bold text-xs">
-                {races.length} Races Today
+                {publicRaces.length} Races Today
               </span>
             </div>
           </div>
@@ -328,7 +348,7 @@ export const RaceList: React.FC<RaceListProps> = ({
             }`}
           >
             <Clock className="w-3.5 h-3.5" />
-            <span>Upcoming ({races.filter((r) => r.status === 'UPCOMING' || r.status === 'OPEN' || r.status === 'DRAFT').length})</span>
+            <span>Upcoming ({publicRaces.filter((r) => r.status === 'UPCOMING' || r.status === 'OPEN' || !r.status).length})</span>
           </button>
 
           <button
@@ -344,7 +364,7 @@ export const RaceList: React.FC<RaceListProps> = ({
             }`}
           >
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>🔴 Live & Open ({races.filter((r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING').length})</span>
+            <span>🔴 Live & Open ({publicRaces.filter((r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING').length})</span>
           </button>
 
           <button
@@ -360,7 +380,7 @@ export const RaceList: React.FC<RaceListProps> = ({
             }`}
           >
             <Trophy className="w-3.5 h-3.5" />
-            <span>Completed ({races.filter((r) => r.status === 'RESULTED' || r.status === 'CLOSED').length})</span>
+            <span>Completed ({publicRaces.filter((r) => r.status === 'RESULTED' || r.status === 'CLOSED').length})</span>
           </button>
 
           <button
@@ -375,7 +395,7 @@ export const RaceList: React.FC<RaceListProps> = ({
                 : 'text-slate-300 hover:text-white hover:bg-emerald-950/40'
             }`}
           >
-            <span>All Races ({races.length})</span>
+            <span>All Races ({publicRaces.length})</span>
           </button>
         </div>
       </div>
@@ -834,9 +854,9 @@ export const RaceList: React.FC<RaceListProps> = ({
                 Live Market Movers
               </h3>
             </div>
-            {races.length > 0 ? (
+            {liveMarketMovers.length > 0 ? (
               <div className="space-y-2.5 text-xs">
-                {races.flatMap(r => (r.horses || []).map(h => ({ horse: h, race: r }))).slice(0, 3).map(({ horse, race }) => (
+                {liveMarketMovers.map(({ horse, race }) => (
                   <div key={`${race.id}_${horse.id}`} className="p-3 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between">
                     <div>
                       <p className="font-bold text-white">{horse.name}</p>
@@ -849,9 +869,9 @@ export const RaceList: React.FC<RaceListProps> = ({
                 ))}
               </div>
             ) : (
-              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-slate-400 text-xs text-center space-y-1">
-                <p className="font-semibold text-slate-300">Live Odds Feed In-Play</p>
-                <p className="text-[11px] text-slate-500">Market movers will show active price steamers and drifters once races open.</p>
+              <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 text-slate-400 text-xs text-center space-y-1.5">
+                <p className="font-semibold text-slate-300">No Live Market Movers</p>
+                <p className="text-[11px] text-slate-500">Live price steamers and in-play market movers will appear here once races go live.</p>
               </div>
             )}
           </div>
@@ -864,24 +884,24 @@ export const RaceList: React.FC<RaceListProps> = ({
                 Turf Exchange Insights
               </h3>
             </div>
-            {races.length > 0 && races[0]?.horses?.length ? (
+            {featuredLiveRace && featuredLiveRace.horses && featuredLiveRace.horses.length > 0 ? (
               <>
                 <p className="text-xs text-slate-300">
-                  Top featured runner for {races[0].name}:
+                  Top featured runner for {featuredLiveRace.name}:
                 </p>
                 <div className="p-3 rounded-2xl bg-slate-950/90 border border-red-500/30 space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-black text-white">{races[0].name}</span>
-                    <span className="text-xs font-mono font-bold text-emerald-400">Odds {formatOdds(races[0].horses[0].win_odds, oddsFormat)}</span>
+                    <span className="text-xs font-black text-white">{featuredLiveRace.name}</span>
+                    <span className="text-xs font-mono font-bold text-emerald-400">Odds {formatOdds(featuredLiveRace.horses[0].win_odds, oddsFormat)}</span>
                   </div>
-                  <p className="text-xs font-bold text-amber-300">#{races[0].horses[0].horse_no || 1} {races[0].horses[0].name} (J: {races[0].horses[0].jockey || 'TBD'})</p>
-                  <p className="text-[11px] text-slate-400">{races[0].venue} • {races[0].distance || 'Official Distance'}</p>
+                  <p className="text-xs font-bold text-amber-300">#{featuredLiveRace.horses[0].horse_no || 1} {featuredLiveRace.horses[0].name} (J: {featuredLiveRace.horses[0].jockey || 'TBD'})</p>
+                  <p className="text-[11px] text-slate-400">{featuredLiveRace.venue} • {featuredLiveRace.distance || 'Official Distance'}</p>
                 </div>
               </>
             ) : (
-              <div className="p-3 rounded-2xl bg-slate-950/90 border border-red-500/30 space-y-1.5 text-xs text-slate-300">
-                <p className="font-bold text-white">Instant Result & Exposure Settlement</p>
-                <p className="text-[11px] text-slate-400">Real-time Win & Place payout calculations with dead-heat multi-winner split rules.</p>
+              <div className="p-4 rounded-2xl bg-slate-950/90 border border-red-500/30 space-y-1.5 text-xs text-slate-300 text-center">
+                <p className="font-bold text-white">No Live Exchange Insights</p>
+                <p className="text-[11px] text-slate-400">Real-time Win & Place payout calculations and expert insights will appear here when fixtures are live.</p>
               </div>
             )}
           </div>
