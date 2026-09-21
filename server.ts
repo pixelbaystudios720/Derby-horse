@@ -1532,14 +1532,17 @@ app.get('/api/races', async (req, res) => {
   if (statusFilter === 'open' || statusFilter === 'open_for_betting') {
     races = races.filter((r) => r.status === 'OPEN' || r.status === 'OPEN_FOR_BETTING' || r.status === 'LIVE');
   } else if (statusFilter === 'upcoming') {
-    races = races.filter((r) => r.status === 'OPEN' || r.status === 'OPEN_FOR_BETTING' || r.status === 'LIVE' || r.status === 'UPCOMING' || r.status === 'CLOSED');
+    races = races.filter((r) => r.status === 'OPEN' || r.status === 'OPEN_FOR_BETTING' || r.status === 'LIVE' || r.status === 'UPCOMING');
   } else if (statusFilter === 'live') {
     races = races.filter((r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING');
   } else if (statusFilter === 'resulted') {
     races = races.filter((r) => r.status === 'RESULTED');
   } else if (statusFilter === 'draft') {
     races = races.filter((r) => r.status === 'DRAFT');
-  } else if (statusFilter !== 'admin_all') {
+  } else if (statusFilter === 'all' || statusFilter === 'admin_all') {
+    // Return all races including DRAFT for admin & internal sync
+  } else {
+    // Default public queries: exclude draft
     races = races.filter((r) => r.status !== 'DRAFT');
   }
 

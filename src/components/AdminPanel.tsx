@@ -348,6 +348,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     { serial_no: 1, gate_no: 1, name: '', jockey: '', trainer: '', win_odds: 2.5, place_odds: 1.5, silk_color: '#dc2626' }
   ]);
 
+  // Race Creation Success Modal state (Interactive direct buttons)
+  const [createdRaceSuccessModal, setCreatedRaceSuccessModal] = useState<{
+    isOpen: boolean;
+    raceName: string;
+    raceNo: number;
+    status: RaceStatus;
+    runnersCount: number;
+  } | null>(null);
+
   // Edit Race Modal state (Manual Edit)
   const [editingRace, setEditingRace] = useState<Race | null>(null);
   const [editRaceName, setEditRaceName] = useState('');
@@ -384,42 +393,52 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     ];
 
     lines.forEach((line, index) => {
-      // 1. Remove leading bullets/indices like "1.", "1)", "#1", "R1:"
-      let lineText = line.replace(/^[#\d]+[\.\)\:\s\-]+/, '').trim();
+      const rawLine = line.trim();
+      if (!rawLine) return;
 
-      // 2. Check if gate number is in parenthesis e.g. "1 (4) HORSE NAME" or "(4) HORSE NAME"
-      let extractedGate: number | null = null;
-      const parenMatch = line.match(/^\s*(\d+)?\s*\(([0-9]+)\)/);
-      if (parenMatch) {
-        if (parenMatch[2]) extractedGate = parseInt(parenMatch[2]);
-        lineText = line.replace(/^\s*(\d+)?\s*\(([0-9]+)\)/, '').trim();
-      }
-
-      // 3. Extract odds from end of line if present (e.g. "2.50 1.40" or "2.5, 1.4")
+      // Extract odds from end of line if present (e.g. "2.50 1.40" or "2.5, 1.4")
+      let cleanLine = rawLine;
       let extractedWin: number | null = null;
       let extractedPlace: number | null = null;
-      const oddsEndMatch = lineText.match(/[\s,\|]+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)$/);
+      const oddsEndMatch = cleanLine.match(/[\s,\|]+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)$/);
       if (oddsEndMatch) {
         extractedWin = parseFloat(oddsEndMatch[1]);
         extractedPlace = parseFloat(oddsEndMatch[2]);
-        lineText = lineText.slice(0, oddsEndMatch.index).trim();
+        cleanLine = cleanLine.slice(0, oddsEndMatch.index).trim();
       }
 
-      // 4. Split by tabs, pipes, commas, hyphens, slashes or multi-spaces
-      let parts: string[] = [];
-      if (lineText.includes('\t')) {
-        parts = lineText.split('\t').map((p) => p.trim()).filter(Boolean);
-      } else if (lineText.includes('|')) {
-        parts = lineText.split('|').map((p) => p.trim()).filter(Boolean);
-      } else if (lineText.includes(',')) {
-        parts = lineText.split(',').map((p) => p.trim()).filter(Boolean);
-      } else if (lineText.includes(' - ')) {
-        parts = lineText.split(' - ').map((p) => p.trim()).filter(Boolean);
-      } else if (lineText.includes(' / ')) {
-        parts = lineText.split(' / ').map((p) => p.trim()).filter(Boolean);
-      } else {
-        parts = lineText.split(/\s{2,}/).map((p) => p.trim()).filter(Boolean);
+      // Check parentheses for gate (e.g. "1 (5) CARNATION" or "(5) CARNATION")
+      let extractedGate: number | null = null;
+      const parenMatch = cleanLine.match(/^\s*(\d+)?\s*\(([0-9]+)\)/);
+      if (parenMatch) {
+        if (parenMatch[2]) extractedGate = parseInt(parenMatch[2], 10);
+        cleanLine = cleanLine.replace(/^\s*(\d+)?\s*\(([0-9]+)\)/, '').trim();
       }
+
+      // Determine delimiter: Tab, Pipe, Semicolon, Comma, ' - ', or single hyphen '-'
+      let parts: string[] = [];
+      if (cleanLine.includes('\t')) {
+        parts = cleanLine.split('\t');
+      } else if (cleanLine.includes('|')) {
+        parts = cleanLine.split('|');
+      } else if (cleanLine.includes(';')) {
+        parts = cleanLine.split(';');
+      } else if (cleanLine.includes(',')) {
+        parts = cleanLine.split(',');
+      } else if (cleanLine.includes(' - ')) {
+        parts = cleanLine.split(' - ');
+      } else if (cleanLine.includes('-') && cleanLine.split('-').length >= 3) {
+        // Hyphen delimited e.g. "1-5-CARNATION-Abhishek Mhatre-Neil Darashah"
+        parts = cleanLine.split('-');
+      } else if (/\s{2,}/.test(cleanLine)) {
+        parts = cleanLine.split(/\s{2,}/);
+      } else if (cleanLine.includes('-')) {
+        parts = cleanLine.split('-');
+      } else {
+        parts = [cleanLine];
+      }
+
+      parts = parts.map((p) => p.trim()).filter(Boolean);
 
       let horseNo = index + 1;
       let gateNo = extractedGate || (index + 1);
@@ -427,54 +446,99 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       let jockey = 'TBD';
       let trainer = 'TBD';
 
-      if (parts.length >= 4) {
-        const firstNum = parseInt(parts[0].replace(/\D/g, ''));
-        const secondNum = parseInt(parts[1].replace(/\D/g, ''));
-        if (!isNaN(firstNum) && !isNaN(secondNum) && parts[0].length <= 2 && parts[1].length <= 2) {
-          horseNo = firstNum || (index + 1);
-          gateNo = secondNum || horseNo;
+      if (parts.length >= 5) {
+        const num1 = parseInt(parts[0], 10);
+        const num2 = parseInt(parts[1], 10);
+        if (!isNaN(num1) && !isNaN(num2)) {
+          // ["1", "5", "CARNATION", "Abhishek Mhatre", "Neil Darashah"]
+          horseNo = num1;
+          gateNo = num2;
           name = parts[2];
-          jockey = parts[3] || 'TBD';
-          trainer = parts[4] || 'TBD';
-        } else if (!isNaN(firstNum) && parts[0].length <= 2) {
-          horseNo = firstNum || (index + 1);
-          gateNo = extractedGate || horseNo;
+          jockey = parts[3];
+          trainer = parts.slice(4).join(' - ');
+        } else if (!isNaN(num1)) {
+          // ["1", "CARNATION", "Abhishek Mhatre", "Neil Darashah", ...]
+          horseNo = num1;
+          gateNo = extractedGate || num1;
           name = parts[1];
-          jockey = parts[2] || 'TBD';
-          trainer = parts[3] || 'TBD';
+          jockey = parts[2];
+          trainer = parts.slice(3).join(' - ');
         } else {
           name = parts[0];
-          jockey = parts[1] || 'TBD';
-          trainer = parts[2] || 'TBD';
+          jockey = parts[1];
+          trainer = parts.slice(2).join(' - ');
+        }
+      } else if (parts.length === 4) {
+        const num1 = parseInt(parts[0], 10);
+        const num2 = parseInt(parts[1], 10);
+        if (!isNaN(num1) && !isNaN(num2)) {
+          // ["1", "5", "CARNATION", "Abhishek Mhatre"]
+          horseNo = num1;
+          gateNo = num2;
+          name = parts[2];
+          jockey = parts[3];
+        } else if (!isNaN(num1)) {
+          // ["1", "CARNATION", "Abhishek Mhatre", "Neil Darashah"]
+          horseNo = num1;
+          gateNo = extractedGate || num1;
+          name = parts[1];
+          jockey = parts[2];
+          trainer = parts[3];
+        } else {
+          name = parts[0];
+          jockey = parts[1];
+          trainer = parts[2];
         }
       } else if (parts.length === 3) {
-        const firstNum = parseInt(parts[0].replace(/\D/g, ''));
-        if (!isNaN(firstNum) && parts[0].length <= 2) {
-          horseNo = firstNum || (index + 1);
-          gateNo = extractedGate || horseNo;
+        const num1 = parseInt(parts[0], 10);
+        const num2 = parseInt(parts[1], 10);
+        if (!isNaN(num1) && !isNaN(num2)) {
+          // ["1", "5", "CARNATION"]
+          horseNo = num1;
+          gateNo = num2;
+          name = parts[2];
+        } else if (!isNaN(num1)) {
+          // ["1", "CARNATION", "Abhishek Mhatre"]
+          horseNo = num1;
+          gateNo = extractedGate || num1;
           name = parts[1];
-          jockey = parts[2] || 'TBD';
+          jockey = parts[2];
         } else {
           name = parts[0];
-          jockey = parts[1] || 'TBD';
-          trainer = parts[2] || 'TBD';
+          jockey = parts[1];
+          trainer = parts[2];
         }
       } else if (parts.length === 2) {
-        const firstNum = parseInt(parts[0].replace(/\D/g, ''));
-        if (!isNaN(firstNum) && parts[0].length <= 2) {
-          horseNo = firstNum || (index + 1);
-          gateNo = extractedGate || horseNo;
+        const num1 = parseInt(parts[0], 10);
+        if (!isNaN(num1)) {
+          horseNo = num1;
+          gateNo = extractedGate || num1;
           name = parts[1];
         } else {
           name = parts[0];
           jockey = parts[1];
         }
       } else if (parts.length === 1) {
-        name = parts[0];
+        const spaceParts = parts[0].split(/\s+/).filter(Boolean);
+        if (spaceParts.length >= 3 && !isNaN(parseInt(spaceParts[0], 10)) && !isNaN(parseInt(spaceParts[1], 10))) {
+          horseNo = parseInt(spaceParts[0], 10);
+          gateNo = parseInt(spaceParts[1], 10);
+          name = spaceParts[2];
+          jockey = spaceParts[3] || 'TBD';
+          trainer = spaceParts.slice(4).join(' ') || 'TBD';
+        } else if (spaceParts.length >= 2 && !isNaN(parseInt(spaceParts[0], 10))) {
+          horseNo = parseInt(spaceParts[0], 10);
+          gateNo = extractedGate || horseNo;
+          name = spaceParts[1];
+          jockey = spaceParts[2] || 'TBD';
+          trainer = spaceParts.slice(3).join(' ') || 'TBD';
+        } else {
+          name = parts[0];
+        }
       }
 
       // Clean prefix tags like "J:", "Jockey:", "T:", "Trainer:", "Drw:"
-      name = (name || '').replace(/^Horse:\s*/i, '').trim();
+      name = (name || '').replace(/^(Horse|H|Name):\s*/i, '').trim();
       jockey = (jockey || '').replace(/^(Jockey|J|Jk):\s*/i, '').trim();
       trainer = (trainer || '').replace(/^(Trainer|T|Tr):\s*/i, '').trim();
 
@@ -1856,20 +1920,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setSelectedOddsRaceId(tempRaceId);
     handleClearForm();
 
+    const createdRaceNo = optimisticRace.race_no || 1;
+
+    setCreatedRaceSuccessModal({
+      isOpen: true,
+      raceName: optimisticRace.name,
+      raceNo: createdRaceNo,
+      status: finalStatus,
+      runnersCount: validRunners.length,
+    });
+
     if (finalStatus === 'DRAFT') {
       soundManager.playChip();
       notify(`💾 Race Card "${newRaceName}" saved to SAVED RACE CARDS (Odds Closed)!`, 'success');
-      setActiveTab('saved');
     } else if (finalStatus === 'LIVE') {
       soundManager.playRaceBugle();
       notify(`⚡ Race "${newRaceName}" published directly to LIVE RACES with ${validRunners.length} runners!`, 'success');
       setAdminRaceFilter('live');
-      setActiveTab('live');
     } else {
       soundManager.playBetPlaced();
       notify(`🚀 Race "${newRaceName}" published for USER VIEW with ${validRunners.length} runners!`, 'success');
       setAdminRaceFilter('upcoming');
-      setActiveTab('upcoming');
     }
 
     // Background server call
@@ -9435,6 +9506,83 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Apply & Populate Race Card ({parseBulkRunnersText(bulkPasteText).length} Horses)</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* RACE CREATION ACTION CONFIRMATION MODAL                                  */}
+      {/* ========================================================================= */}
+      {createdRaceSuccessModal?.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-slate-900 border-2 border-emerald-500/60 rounded-3xl shadow-[0_0_60px_rgba(16,185,129,0.3)] p-6 sm:p-7 space-y-5 text-center">
+            <div className="w-16 h-16 rounded-3xl bg-emerald-500/20 border-2 border-emerald-500/40 flex items-center justify-center text-emerald-400 mx-auto shadow-lg shadow-emerald-950/50">
+              <CheckCircle2 className="w-9 h-9" />
+            </div>
+
+            <div className="space-y-2">
+              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black uppercase tracking-wider">
+                {createdRaceSuccessModal.status === 'DRAFT' ? '💾 SAVED TO SAVED RACE CARDS' : '🚀 PUBLISHED FOR USER VIEW'}
+              </span>
+              <h3 className="text-xl sm:text-2xl font-black text-white">
+                Race #{createdRaceSuccessModal.raceNo} Created Successfully!
+              </h3>
+              <p className="text-sm font-bold text-amber-400">
+                "{createdRaceSuccessModal.raceName}" • {createdRaceSuccessModal.runnersCount} Runners
+              </p>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                {createdRaceSuccessModal.status === 'DRAFT'
+                  ? 'Card is securely saved as a draft with odds closed. You can add the next race card now or view all saved cards.'
+                  : 'Card is published to Upcoming Races with flash banner active for users.'}
+              </p>
+            </div>
+
+            <div className="space-y-2.5 pt-2">
+              <button
+                type="button"
+                id="add-next-race-modal-btn"
+                onClick={() => {
+                  const nextNo = (createdRaceSuccessModal.raceNo || 1) + 1;
+                  handleClearForm();
+                  setNewRaceNo(nextNo);
+                  setActiveTab('add_race');
+                  setCreatedRaceSuccessModal(null);
+                  soundManager.playChip();
+                }}
+                className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black text-sm uppercase tracking-wider transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/60 active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+                <span>➕ Add Next Race Card (Race #{createdRaceSuccessModal.raceNo + 1})</span>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  id="view-saved-cards-modal-btn"
+                  onClick={() => {
+                    setActiveTab('saved');
+                    setCreatedRaceSuccessModal(null);
+                  }}
+                  className="py-2.5 px-4 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 border border-indigo-500/40 text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Bookmark className="w-3.5 h-3.5" />
+                  <span>Go to Saved Cards</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="view-published-races-modal-btn"
+                  onClick={() => {
+                    setActiveTab('upcoming');
+                    setCreatedRaceSuccessModal(null);
+                  }}
+                  className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Go to Published Races</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
