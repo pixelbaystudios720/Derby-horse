@@ -357,6 +357,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     runnersCount: number;
   } | null>(null);
 
+  // Custom UI Confirmation Action Modal State (Replaces native browser window.confirm popups)
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    variant?: 'danger' | 'warning' | 'primary' | 'success';
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
+
+  const requestConfirm = (options: {
+    title?: string;
+    message: string;
+    confirmText?: string;
+    cancelText?: string;
+    variant?: 'danger' | 'warning' | 'primary' | 'success';
+    onConfirm: () => void | Promise<void>;
+  }) => {
+    soundManager.playClick();
+    setConfirmModal({
+      isOpen: true,
+      title: options.title || 'Confirm Action',
+      message: options.message,
+      confirmText: options.confirmText || 'Yes, Confirm',
+      cancelText: options.cancelText || 'Cancel',
+      variant: options.variant || 'danger',
+      onConfirm: options.onConfirm,
+    });
+  };
+
   // Edit Race Modal state (Manual Edit)
   const [editingRace, setEditingRace] = useState<Race | null>(null);
   const [editRaceName, setEditRaceName] = useState('');
@@ -882,45 +913,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleToggleBlockUser = async (user: User) => {
-    const confirm = window.confirm(`Are you sure you want to ${user.is_blocked ? 'UNBLOCK' : 'BLOCK'} @${user.username}?`);
-    if (!confirm) return;
-    try {
-      setIsLoading(true);
-      const res = await api.toggleBlockUser(user.id);
-      soundManager.playClick();
-      setActionMessage(res.message);
-      await loadAdminData();
-      setTimeout(() => setActionMessage(null), 3500);
-    } catch (err: any) {
-      setActionMessage(err.message || 'Failed to update user block status');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleToggleBlockUser = (user: User) => {
+    requestConfirm({
+      title: user.is_blocked ? 'Unblock User Account' : 'Block User Account',
+      message: `Are you sure you want to ${user.is_blocked ? 'UNBLOCK' : 'BLOCK'} @${user.username}?`,
+      confirmText: user.is_blocked ? 'Unblock Account' : 'Block Account',
+      variant: user.is_blocked ? 'success' : 'danger',
+      onConfirm: async () => {
+        try {
+          setIsLoading(true);
+          const res = await api.toggleBlockUser(user.id);
+          soundManager.playClick();
+          setActionMessage(res.message);
+          await loadAdminData();
+          setTimeout(() => setActionMessage(null), 3500);
+        } catch (err: any) {
+          setActionMessage(err.message || 'Failed to update user block status');
+        } finally {
+          setIsLoading(false);
+        }
+      },
+    });
   };
 
-  const handleLoginAsUser = async (user: User) => {
-    const confirm = window.confirm(`Login as @${user.username} to view the platform from their perspective?`);
-    if (!confirm) return;
-    try {
-      setIsLoading(true);
-      const res = await api.impersonateUser(user.id);
-      if (res.success && res.user) {
-        soundManager.playClick();
-        if (onImpersonateUser) {
-          onImpersonateUser(res.user);
-        } else {
-          localStorage.setItem('derby_user', JSON.stringify(res.user));
-          window.location.hash = '#/lobby';
+  const handleLoginAsUser = (user: User) => {
+    requestConfirm({
+      title: 'Impersonate User View',
+      message: `Login as @${user.username} to view the platform from their perspective?`,
+      confirmText: 'Switch to User View',
+      variant: 'primary',
+      onConfirm: async () => {
+        try {
+          setIsLoading(true);
+          const res = await api.impersonateUser(user.id);
+          if (res.success && res.user) {
+            soundManager.playClick();
+            if (onImpersonateUser) {
+              onImpersonateUser(res.user);
+            } else {
+              localStorage.setItem('derby_user', JSON.stringify(res.user));
+              window.location.hash = '#/lobby';
+            }
+          } else {
+            setActionMessage(res.error || 'Failed to login as user');
+          }
+        } catch (err: any) {
+          setActionMessage(err.message || 'Failed to login as user');
+        } finally {
+          setIsLoading(false);
         }
-      } else {
-        setActionMessage(res.error || 'Failed to login as user');
-      }
-    } catch (err: any) {
-      setActionMessage(err.message || 'Failed to login as user');
-    } finally {
-      setIsLoading(false);
-    }
+      },
+    });
   };
 
   const handleSaveRiskLimits = async (e?: React.FormEvent) => {
@@ -954,31 +997,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleToggleGlobalBetting = async () => {
+  const handleToggleGlobalBetting = () => {
     const nextState = !(systemSettings.betting_enabled ?? true);
-    const confirm = window.confirm(
-      nextState
-        ? 'Resume all live betting platform-wide?'
-        : '🚨 EMERGENCY: Freeze all betting across the entire app immediately?'
-    );
-    if (!confirm) return;
-    try {
-      setIsLoading(true);
-      const res = await api.updateSystemSettings({
-        betting_enabled: nextState,
-        emergency_message: nextState ? '' : 'Betting is temporarily suspended by Administrator.',
-      });
-      if (res.success) {
-        soundManager.playClick();
-        setSystemSettings(prev => ({ ...prev, betting_enabled: nextState }));
-        setActionMessage(nextState ? '🟢 Global Betting RESUMED platform-wide.' : '🚨 EMERGENCY: Global Betting FROZEN platform-wide.');
-        setTimeout(() => setActionMessage(null), 4000);
-      }
-    } catch (err: any) {
-      setActionMessage('Failed to update emergency switch');
-    } finally {
-      setIsLoading(false);
-    }
+    requestConfirm({
+      title: nextState ? 'Resume Global Betting' : '🚨 Emergency Freeze Betting',
+      message: nextState
+        ? 'Resume all live betting platform-wide across all active races?'
+        : '🚨 EMERGENCY ACTION: Freeze all live betting across the entire platform immediately?',
+      confirmText: nextState ? 'Resume Live Betting' : 'Freeze All Betting',
+      variant: nextState ? 'success' : 'danger',
+      onConfirm: async () => {
+        try {
+          setIsLoading(true);
+          const res = await api.updateSystemSettings({
+            betting_enabled: nextState,
+            emergency_message: nextState ? '' : 'Betting is temporarily suspended by Administrator.',
+          });
+          if (res.success) {
+            soundManager.playClick();
+            setSystemSettings(prev => ({ ...prev, betting_enabled: nextState }));
+            setActionMessage(nextState ? '🟢 Global Betting RESUMED platform-wide.' : '🚨 EMERGENCY: Global Betting FROZEN platform-wide.');
+            setTimeout(() => setActionMessage(null), 4000);
+          }
+        } catch (err: any) {
+          setActionMessage('Failed to update emergency switch');
+        } finally {
+          setIsLoading(false);
+        }
+      },
+    });
   };
 
   const handlePostAnnouncement = async (e: React.FormEvent) => {
@@ -1021,20 +1068,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleDeleteSubAdmin = async (id: string) => {
-    const confirm = window.confirm('Are you sure you want to remove this Sub-Admin?');
-    if (!confirm) return;
-    try {
-      setIsLoading(true);
-      await api.deleteSubAdmin(id);
-      soundManager.playClick();
-      setActionMessage('Sub-Admin removed successfully');
-      await loadAdminData();
-    } catch (err: any) {
-      setActionMessage('Failed to remove sub-admin');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleDeleteSubAdmin = (id: string) => {
+    requestConfirm({
+      title: 'Remove Sub-Admin',
+      message: 'Are you sure you want to remove this Sub-Admin account? They will lose staff portal access immediately.',
+      confirmText: 'Yes, Remove Sub-Admin',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsLoading(true);
+          await api.deleteSubAdmin(id);
+          soundManager.playClick();
+          setActionMessage('Sub-Admin removed successfully');
+          await loadAdminData();
+        } catch (err: any) {
+          setActionMessage('Failed to remove sub-admin');
+        } finally {
+          setIsLoading(false);
+        }
+      },
+    });
   };
 
   const handleChangeAdminPassword = async (e: React.FormEvent) => {
@@ -1219,19 +1272,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleDeleteCenter = async (centerId: string, centerName: string) => {
-    if (!window.confirm(`Are you sure you want to delete Race Center "${centerName}"? All related race fixtures should be deleted first.`)) return;
-    try {
-      setIsLoading(true);
-      await api.deleteRaceCenter(centerId);
-      soundManager.playClick();
-      notify(`🗑️ Race Center "${centerName}" deleted successfully!`, 'success');
-      await loadAdminData();
-    } catch (err: any) {
-      notify(err.message || 'Failed to delete race center', 'error');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleDeleteCenter = (centerId: string, centerName: string) => {
+    requestConfirm({
+      title: 'Delete Race Center',
+      message: `Are you sure you want to delete Race Center "${centerName}"? All related race fixtures should be deleted first.`,
+      confirmText: 'Yes, Delete Center',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsLoading(true);
+          await api.deleteRaceCenter(centerId);
+          soundManager.playClick();
+          notify(`🗑️ Race Center "${centerName}" deleted successfully!`, 'success');
+          await loadAdminData();
+        } catch (err: any) {
+          notify(err.message || 'Failed to delete race center', 'error');
+        } finally {
+          setIsLoading(false);
+        }
+      },
+    });
   };
 
   // Level 2: Create Race Day Handler
@@ -1305,21 +1365,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleDeleteRaceDay = async (dayId: string) => {
-    if (!confirm('Are you sure you want to delete this race day card?')) return;
-    try {
-      setIsLoading(true);
-      await api.deleteRaceDay(dayId);
-      setRaceDays((prev) => prev.filter((d) => d.id !== dayId));
-      soundManager.playClick();
-      setActionMessage('🗑️ Race day card deleted successfully');
-      await loadAdminData(true);
-      setTimeout(() => setActionMessage(null), 3000);
-    } catch (err: any) {
-      setActionMessage(err.message || 'Failed to delete race day');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleDeleteRaceDay = (dayId: string) => {
+    requestConfirm({
+      title: 'Delete Race Day Card',
+      message: 'Are you sure you want to delete this race day card? Any linked race fixtures will need to be re-assigned.',
+      confirmText: 'Yes, Delete Card',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsLoading(true);
+          await api.deleteRaceDay(dayId);
+          setRaceDays((prev) => prev.filter((d) => d.id !== dayId));
+          soundManager.playClick();
+          setActionMessage('🗑️ Race day card deleted successfully');
+          await loadAdminData(true);
+          setTimeout(() => setActionMessage(null), 3000);
+        } catch (err: any) {
+          setActionMessage(err.message || 'Failed to delete race day');
+        } finally {
+          setIsLoading(false);
+        }
+      },
+    });
   };
 
   const handlePublishRaceDay = async (dayId: string) => {
@@ -1339,7 +1406,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // ⚡ 1-Click Auto-Schedule Full Day Card (7 Races with 30-min intervals starting 1:00 PM)
-  const handleQuickScheduleDay = async (day: RaceDay) => {
+  const handleQuickScheduleDay = (day: RaceDay) => {
     const center = (raceCenters || []).find((c) => c.id === day.center_id);
     const centerName = center?.name || 'Turf Club';
     const venueName = `${centerName} Turf Club`;
@@ -1354,48 +1421,51 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       { no: 7, time: '4:00 PM', distance: '1400m', name: `The Finale Handicap` },
     ];
 
-    const confirmed = window.confirm(
-      `Generate full 7-Race Day Card for ${day.title}?\n\nSchedule:\n• Race 1: 1:00 PM\n• Race 2: 1:30 PM\n• Race 3: 2:00 PM\n• Race 4: 2:30 PM\n• Race 5: 3:00 PM\n• Race 6: 3:30 PM\n• Race 7: 4:00 PM\n\nAll races will be created in UPCOMING state and ready for you to bulk paste runners.`
-    );
-    if (!confirmed) return;
+    requestConfirm({
+      title: '⚡ Auto-Schedule 7 Races',
+      message: `Generate full 7-Race Day Card for "${day.title}"?\n\nSchedule:\n• Race 1: 1:00 PM\n• Race 2: 1:30 PM\n• Race 3: 2:00 PM\n• Race 4: 2:30 PM\n• Race 5: 3:00 PM\n• Race 6: 3:30 PM\n• Race 7: 4:00 PM\n\nAll races will be created in UPCOMING state and ready for you to bulk paste runners.`,
+      confirmText: 'Generate 7 Races',
+      variant: 'primary',
+      onConfirm: async () => {
+        try {
+          setIsLoading(true);
+          for (const item of raceSchedule) {
+            const defaultRunners = [
+              { serial_no: 1, gate_no: 1, name: 'SPEED PRINCESS', jockey: 'Suraj Narredu', trainer: 'S. Padmanabhan', win_odds: 2.50, place_odds: 1.40, silk_color: '#dc2626', is_suspended: false },
+              { serial_no: 2, gate_no: 2, name: 'ROYAL COMMANDER', jockey: 'P. Trevor', trainer: 'Prasanna Kumar', win_odds: 3.20, place_odds: 1.60, silk_color: '#2563eb', is_suspended: false },
+              { serial_no: 3, gate_no: 3, name: 'GOLDEN ARROW', jockey: 'A. Sandesh', trainer: 'Dallas Todywalla', win_odds: 4.50, place_odds: 1.80, silk_color: '#16a34a', is_suspended: false },
+              { serial_no: 4, gate_no: 4, name: 'THUNDER BOLT', jockey: 'Neeraj Rawal', trainer: 'Imtiaz Sait', win_odds: 6.00, place_odds: 2.10, silk_color: '#d97706', is_suspended: false },
+              { serial_no: 5, gate_no: 5, name: 'MYSTIC STAR', jockey: 'C. S. Jodha', trainer: 'P. Shroff', win_odds: 8.50, place_odds: 2.60, silk_color: '#7c3aed', is_suspended: false },
+              { serial_no: 6, gate_no: 6, name: 'FIRE BLADE', jockey: 'Imran Chisty', trainer: 'Narendra Lagad', win_odds: 12.00, place_odds: 3.50, silk_color: '#e11d48', is_suspended: false },
+            ];
 
-    try {
-      setIsLoading(true);
-      for (const item of raceSchedule) {
-        const defaultRunners = [
-          { serial_no: 1, gate_no: 1, name: 'SPEED PRINCESS', jockey: 'Suraj Narredu', trainer: 'S. Padmanabhan', win_odds: 2.50, place_odds: 1.40, silk_color: '#dc2626', is_suspended: false },
-          { serial_no: 2, gate_no: 2, name: 'ROYAL COMMANDER', jockey: 'P. Trevor', trainer: 'Prasanna Kumar', win_odds: 3.20, place_odds: 1.60, silk_color: '#2563eb', is_suspended: false },
-          { serial_no: 3, gate_no: 3, name: 'GOLDEN ARROW', jockey: 'A. Sandesh', trainer: 'Dallas Todywalla', win_odds: 4.50, place_odds: 1.80, silk_color: '#16a34a', is_suspended: false },
-          { serial_no: 4, gate_no: 4, name: 'THUNDER BOLT', jockey: 'Neeraj Rawal', trainer: 'Imtiaz Sait', win_odds: 6.00, place_odds: 2.10, silk_color: '#d97706', is_suspended: false },
-          { serial_no: 5, gate_no: 5, name: 'MYSTIC STAR', jockey: 'C. S. Jodha', trainer: 'P. Shroff', win_odds: 8.50, place_odds: 2.60, silk_color: '#7c3aed', is_suspended: false },
-          { serial_no: 6, gate_no: 6, name: 'FIRE BLADE', jockey: 'Imran Chisty', trainer: 'Narendra Lagad', win_odds: 12.00, place_odds: 3.50, silk_color: '#e11d48', is_suspended: false },
-        ];
+            await api.createRace({
+              name: item.name,
+              race_no: item.no,
+              center_id: day.center_id,
+              race_day_id: day.id,
+              venue: venueName,
+              race_time: item.time,
+              date_str: day.race_date,
+              distance: item.distance,
+              class_grade: 'Grade 1 • Terms',
+              status: 'UPCOMING',
+              image_url: '/images/race_action.jpg',
+              horses: defaultRunners as any,
+            });
+          }
 
-        await api.createRace({
-          name: item.name,
-          race_no: item.no,
-          center_id: day.center_id,
-          race_day_id: day.id,
-          venue: venueName,
-          race_time: item.time,
-          date_str: day.race_date,
-          distance: item.distance,
-          class_grade: 'Grade 1 • Terms',
-          status: 'UPCOMING',
-          image_url: '/images/race_action.jpg',
-          horses: defaultRunners as any,
-        });
-      }
-
-      soundManager.playWinPayout();
-      notify(`✅ Generated 7 Races (1:00 PM to 4:00 PM) for ${day.title}!`, 'success');
-      await onRefreshData();
-      await loadAdminData(true);
-    } catch (err: any) {
-      notify(err.message || 'Failed to auto-schedule races', 'error');
-    } finally {
-      setIsLoading(false);
-    }
+          soundManager.playWinPayout();
+          notify(`✅ Generated 7 Races (1:00 PM to 4:00 PM) for ${day.title}!`, 'success');
+          await onRefreshData();
+          await loadAdminData(true);
+        } catch (err: any) {
+          notify(err.message || 'Failed to auto-schedule races', 'error');
+        } finally {
+          setIsLoading(false);
+        }
+      },
+    });
   };
 
   // 1-Click Race Status Master Controller (OPEN / LIVE, SUSPEND, CLOSE, UPCOMING)
@@ -1750,28 +1820,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleDeleteHorseFromRace = async (raceId: string, horseId: string, horseName: string) => {
-    if (!window.confirm(`Are you sure you want to remove "${horseName}" from this race card?`)) return;
-    try {
-      soundManager.playClick();
-      // 0ms local update
-      setRaces((prev) =>
-        prev.map((r) =>
-          r.id === raceId
-            ? { ...r, horses: r.horses.filter((h) => h.id !== horseId) }
-            : r
-        )
-      );
-      notify(`🗑️ Runner "${horseName}" removed from race.`, 'info');
+  const handleDeleteHorseFromRace = (raceId: string, horseId: string, horseName: string) => {
+    requestConfirm({
+      title: 'Remove Horse Runner',
+      message: `Are you sure you want to remove "${horseName}" from this race card?`,
+      confirmText: 'Yes, Remove Runner',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          soundManager.playClick();
+          // 0ms local update
+          setRaces((prev) =>
+            prev.map((r) =>
+              r.id === raceId
+                ? { ...r, horses: r.horses.filter((h) => h.id !== horseId) }
+                : r
+            )
+          );
+          notify(`🗑️ Runner "${horseName}" removed from race.`, 'info');
 
-      api.deleteHorseFromRace(raceId, horseId).then(() => {
-        onRefreshData();
-      }).catch((err) => {
-        notify(err.message || 'Failed to remove runner on server', 'error');
-      });
-    } catch (err: any) {
-      notify(err.message || 'Failed to remove runner', 'error');
-    }
+          api.deleteHorseFromRace(raceId, horseId).then(() => {
+            onRefreshData();
+          }).catch((err) => {
+            notify(err.message || 'Failed to remove runner on server', 'error');
+          });
+        } catch (err: any) {
+          notify(err.message || 'Failed to remove runner', 'error');
+        }
+      },
+    });
   };
 
   const handleMakeRaceLive = async (race: Race) => {
@@ -1845,28 +1922,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handlePublishAllSavedCards = async () => {
+  const handlePublishAllSavedCards = () => {
     const draftRaces = races.filter((r) => r.status === 'DRAFT');
     if (draftRaces.length === 0) {
       notify('No saved draft race cards to publish.', 'info');
       return;
     }
-    const confirmed = window.confirm(`Publish all ${draftRaces.length} saved race cards for user view?\n\nThey will become visible on the user app with "Betting to start 30 minutes prior to race" (Odds Closed).`);
-    if (!confirmed) return;
 
-    try {
-      soundManager.playWinPayout();
-      setRaces((prev) => prev.map((r) => r.status === 'DRAFT' ? { ...r, status: 'UPCOMING' } : r));
-      setActiveTab('upcoming');
-      notify(`📢 Published ${draftRaces.length} Race Cards for User View!`, 'success');
+    requestConfirm({
+      title: 'Publish All Saved Race Cards',
+      message: `Publish all ${draftRaces.length} saved race cards for user view?\n\nThey will become visible on the user app with "Betting to start 30 minutes prior to race" (Odds Closed).`,
+      confirmText: 'Publish All Cards',
+      variant: 'success',
+      onConfirm: async () => {
+        try {
+          soundManager.playWinPayout();
+          setRaces((prev) => prev.map((r) => r.status === 'DRAFT' ? { ...r, status: 'UPCOMING' } : r));
+          setActiveTab('upcoming');
+          notify(`📢 Published ${draftRaces.length} Race Cards for User View!`, 'success');
 
-      for (const r of draftRaces) {
-        api.updateRaceStatus(r.id, 'UPCOMING').catch(() => {});
-      }
-      loadAdminData(true);
-    } catch (err: any) {
-      notify(err.message || 'Failed to publish all saved cards', 'error');
-    }
+          for (const r of draftRaces) {
+            api.updateRaceStatus(r.id, 'UPCOMING').catch(() => {});
+          }
+          loadAdminData(true);
+        } catch (err: any) {
+          notify(err.message || 'Failed to publish all saved cards', 'error');
+        }
+      },
+    });
   };
 
   const handleCreateRace = async (e: React.FormEvent) => {
@@ -2040,21 +2123,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleDeleteRace = async (raceId: string, raceName: string) => {
-    if (!window.confirm(`Are you sure you want to delete the race fixture "${raceName}"?`)) return;
-    try {
-      setIsLoading(true);
-      await api.deleteRace(raceId);
-      setActionMessage(`🗑️ Race fixture "${raceName}" deleted successfully!`);
-      await onRefreshData();
-      await loadAdminData();
-      setTimeout(() => setActionMessage(null), 3000);
-    } catch (err: any) {
-      setActionMessage(err.message || 'Failed to delete race');
-      setTimeout(() => setActionMessage(null), 3500);
-    } finally {
-      setIsLoading(false);
-    }
+  const handleDeleteRace = (raceId: string, raceName: string) => {
+    requestConfirm({
+      title: 'Delete Race Fixture',
+      message: `Are you sure you want to delete the race fixture "${raceName}"? This action cannot be undone.`,
+      confirmText: 'Yes, Delete Race',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsLoading(true);
+          await api.deleteRace(raceId);
+          setActionMessage(`🗑️ Race fixture "${raceName}" deleted successfully!`);
+          await onRefreshData();
+          await loadAdminData();
+          setTimeout(() => setActionMessage(null), 3000);
+        } catch (err: any) {
+          setActionMessage(err.message || 'Failed to delete race');
+          setTimeout(() => setActionMessage(null), 3500);
+        } finally {
+          setIsLoading(false);
+        }
+      },
+    });
   };
 
   const handleLoadPreset = () => {
@@ -2127,21 +2217,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleResetDemo = async () => {
-    if (!window.confirm('Are you sure you want to reset all platform data to initial state?')) return;
-    try {
-      setIsLoading(true);
-      await api.resetDemo();
-      await onRefreshData();
-      await loadAdminData();
-      setActionMessage('Platform data reset to factory demo state!');
-      setTimeout(() => setActionMessage(null), 3000);
-    } catch (err: any) {
-      setActionMessage(err.message || 'Failed to reset demo');
-      setTimeout(() => setActionMessage(null), 3500);
-    } finally {
-      setIsLoading(false);
-    }
+  const handleResetDemo = () => {
+    requestConfirm({
+      title: 'Reset Platform Data',
+      message: 'Are you sure you want to reset all platform data to initial state? All test fixtures, bets, and transactions will be cleared.',
+      confirmText: 'Yes, Reset Everything',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsLoading(true);
+          await api.resetDemo();
+          await onRefreshData();
+          await loadAdminData();
+          setActionMessage('Platform data reset to factory demo state!');
+          setTimeout(() => setActionMessage(null), 3000);
+        } catch (err: any) {
+          setActionMessage(err.message || 'Failed to reset demo');
+          setTimeout(() => setActionMessage(null), 3500);
+        } finally {
+          setIsLoading(false);
+        }
+      },
+    });
   };
 
   return (
@@ -9994,6 +10091,78 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* CUSTOM CONFIRMATION ACTION MODAL (Replaces browser popups) */}
+      {/* ======================================================== */}
+      {confirmModal && confirmModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md bg-gradient-to-b from-[#0e1724] via-[#0b121c] to-[#080d14] rounded-3xl border-2 border-slate-700/80 shadow-[0_0_50px_rgba(0,0,0,0.8)] p-6 text-center space-y-4">
+            {/* Icon badge */}
+            <div className={`w-14 h-14 rounded-2xl mx-auto flex items-center justify-center shadow-lg ${
+              confirmModal.variant === 'danger'
+                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 shadow-rose-500/20'
+                : confirmModal.variant === 'success'
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 shadow-emerald-500/20'
+                : confirmModal.variant === 'warning'
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-amber-500/20'
+                : 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/40 shadow-indigo-500/20'
+            }`}>
+              {confirmModal.variant === 'danger' ? (
+                <Trash2 className="w-7 h-7" />
+              ) : confirmModal.variant === 'success' ? (
+                <CheckCircle2 className="w-7 h-7" />
+              ) : (
+                <AlertTriangle className="w-7 h-7" />
+              )}
+            </div>
+
+            {/* Title & Message */}
+            <div className="space-y-2">
+              <h3 className="text-lg font-black text-white tracking-tight">
+                {confirmModal.title}
+              </h3>
+              <p className="text-xs text-slate-300 whitespace-pre-line leading-relaxed px-2">
+                {confirmModal.message}
+              </p>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex items-center justify-center gap-3 pt-3">
+              <button
+                type="button"
+                id="modal-confirm-cancel-btn"
+                onClick={() => {
+                  soundManager.playClick();
+                  setConfirmModal(null);
+                }}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs transition cursor-pointer border border-slate-700"
+              >
+                {confirmModal.cancelText || 'Cancel'}
+              </button>
+
+              <button
+                type="button"
+                id="modal-confirm-action-btn"
+                onClick={async () => {
+                  const action = confirmModal.onConfirm;
+                  setConfirmModal(null);
+                  await action();
+                }}
+                className={`flex-1 py-2.5 px-4 rounded-xl font-black text-xs uppercase tracking-wider text-white transition cursor-pointer shadow-lg active:scale-95 ${
+                  confirmModal.variant === 'danger'
+                    ? 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 shadow-rose-950/50 border border-rose-400/40'
+                    : confirmModal.variant === 'success'
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-950/50 border border-emerald-400/40'
+                    : 'bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-slate-950 font-black'
+                }`}
+              >
+                {confirmModal.confirmText || 'Confirm'}
+              </button>
+            </div>
           </div>
         </div>
       )}
