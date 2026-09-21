@@ -1931,7 +1931,7 @@ app.delete('/api/banners/:id', (req, res) => {
 // ----------------------------------------------------
 
 // 2. Add Race with Horses & Odds (Manual Admin Entry)
-app.post('/api/admin/races', (req, res) => {
+app.post('/api/admin/races', async (req, res) => {
   const { name, race_no, venue, race_time, date_str, distance, going, class_grade, horses } = req.body;
 
   if (!name || !race_time) {
@@ -1963,13 +1963,15 @@ app.post('/api/admin/races', (req, res) => {
     id: raceId,
     name: String(name).trim(),
     race_no: race_no ? Number(race_no) : undefined,
+    center_id: req.body.center_id,
+    race_day_id: req.body.race_day_id,
     venue: String(venue || 'Bangalore Turf Club').trim(),
     race_time: String(race_time).trim(),
     date_str: String(date_str || 'Today, 5th Sep').trim(),
     distance: String(distance || '1600m').trim(),
     going: String(going || 'Good').trim(),
     class_grade: String(class_grade || 'Grade 1 • Terms').trim(),
-    status: req.body.status || 'OPEN',
+    status: req.body.status || 'DRAFT',
     image_url: req.body.image_url || '/images/race_action.jpg',
     winner_horse_id: null,
     place_horses_ids: [],
@@ -1979,21 +1981,28 @@ app.post('/api/admin/races', (req, res) => {
 
   db.races.unshift(newRace);
   saveDatabase();
-  ensureMongoConnected().then(() => {
-    RaceModel.findOneAndUpdate({ id: newRace.id }, newRace, { upsert: true, new: true }).catch(() => {});
-  }).catch(() => {});
+
+  try {
+    await ensureMongoConnected();
+    await RaceModel.findOneAndUpdate({ id: newRace.id }, newRace, { upsert: true, new: true });
+  } catch (err: any) {
+    console.warn('MongoDB race create notice:', err.message);
+  }
+
   return res.json({ success: true, race: newRace });
 });
 
 // 2b. Full Edit Race & Runners (Manual Admin Update)
-app.put('/api/admin/races/:id', (req, res) => {
+app.put('/api/admin/races/:id', async (req, res) => {
   const race = db.races.find((r) => r.id === req.params.id);
   if (!race) return res.status(404).json({ error: 'Race not found' });
 
-  const { name, race_no, venue, race_time, date_str, distance, going, class_grade, horses, status, image_url } = req.body;
+  const { name, race_no, center_id, race_day_id, venue, race_time, date_str, distance, going, class_grade, horses, status, image_url } = req.body;
 
   if (name !== undefined) race.name = String(name).trim();
   if (race_no !== undefined) race.race_no = race_no ? Number(race_no) : undefined;
+  if (center_id !== undefined) race.center_id = center_id;
+  if (race_day_id !== undefined) race.race_day_id = race_day_id;
   if (venue !== undefined) race.venue = String(venue).trim();
   if (race_time !== undefined) race.race_time = String(race_time).trim();
   if (date_str !== undefined) race.date_str = String(date_str).trim();
@@ -2026,28 +2035,39 @@ app.put('/api/admin/races/:id', (req, res) => {
   }
 
   saveDatabase();
-  ensureMongoConnected().then(() => {
-    RaceModel.findOneAndUpdate({ id: race.id }, race, { upsert: true, new: true }).catch(() => {});
-  }).catch(() => {});
+
+  try {
+    await ensureMongoConnected();
+    await RaceModel.findOneAndUpdate({ id: race.id }, race, { upsert: true, new: true });
+  } catch (err: any) {
+    console.warn('MongoDB race update notice:', err.message);
+  }
+
   return res.json({ success: true, race });
 });
 
 // 2c. Delete Race Fixture
-app.delete('/api/admin/races/:id', (req, res) => {
+app.delete('/api/admin/races/:id', async (req, res) => {
   const raceIndex = db.races.findIndex((r) => r.id === req.params.id);
   if (raceIndex === -1) return res.status(404).json({ error: 'Race not found' });
 
   db.races.splice(raceIndex, 1);
   db.bets = db.bets.filter((b) => b.race_id !== req.params.id);
   saveDatabase();
-  ensureMongoConnected().then(() => {
-    RaceModel.deleteOne({ id: req.params.id }).catch(() => {});
-  }).catch(() => {});
+
+  try {
+    await ensureMongoConnected();
+    await RaceModel.deleteOne({ id: req.params.id });
+    await BetModel.deleteMany({ race_id: req.params.id });
+  } catch (err: any) {
+    console.warn('MongoDB race delete notice:', err.message);
+  }
+
   return res.json({ success: true, message: 'Race deleted successfully' });
 });
 
 // 3. Edit Race Status (Open -> Closed -> Resulted -> Suspended -> Upcoming)
-app.put('/api/admin/races/:id/status', (req, res) => {
+app.put('/api/admin/races/:id/status', async (req, res) => {
   const { status } = req.body;
   const race = db.races.find((r) => r.id === req.params.id);
   if (!race) return res.status(404).json({ error: 'Race not found' });
@@ -2097,15 +2117,19 @@ app.put('/api/admin/races/:id/status', (req, res) => {
   }
 
   saveDatabase();
-  ensureMongoConnected().then(() => {
-    RaceModel.findOneAndUpdate({ id: race.id }, race, { upsert: true, new: true }).catch(() => {});
-  }).catch(() => {});
+
+  try {
+    await ensureMongoConnected();
+    await RaceModel.findOneAndUpdate({ id: race.id }, race, { upsert: true, new: true });
+  } catch (err: any) {
+    console.warn('MongoDB race status update notice:', err.message);
+  }
 
   return res.json({ success: true, race, races: db.races });
 });
 
 // 4. Update Horse Odds
-app.put('/api/admin/horses/:id/odds', (req, res) => {
+app.put('/api/admin/horses/:id/odds', async (req, res) => {
   const { win_odds, place_odds, changed_by } = req.body;
   let foundHorse: Horse | null = null;
   let foundRace: Race | null = null;
@@ -2139,11 +2163,19 @@ app.put('/api/admin/horses/:id/odds', (req, res) => {
     }
   }
 
-  if (!foundHorse) {
+  if (!foundHorse || !foundRace) {
     return res.status(404).json({ error: 'Horse not found' });
   }
 
   saveDatabase();
+
+  try {
+    await ensureMongoConnected();
+    await RaceModel.findOneAndUpdate({ id: foundRace.id }, foundRace, { upsert: true, new: true });
+  } catch (err: any) {
+    console.warn('MongoDB odds update notice:', err.message);
+  }
+
   return res.json({ success: true, horse: foundHorse, race: foundRace });
 });
 
