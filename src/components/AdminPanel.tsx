@@ -2070,10 +2070,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleClearForm = () => {
+    const nextNo = (races || []).length + 1;
     setNewRaceName('');
-    setNewRaceNo('1');
-    setNewRaceCenterId('cntr_hyderabad');
-    setNewVenue('Hyderabad Race Club');
+    setNewRaceNo(String(nextNo));
+    setNewRaceCenterId(raceCenters[0]?.id || 'cntr_hyderabad');
+    setNewVenue(raceCenters[0]?.name ? `${raceCenters[0].name} Race Club` : 'Hyderabad Race Club');
     setNewTime('');
     setNewDistance('');
     setNewGoing('Good');
