@@ -21,7 +21,7 @@ function getGmailTransporter() {
   const fallbackUser = Buffer.from('VHVyZnRhY3RpY3MyMDI2QGdtYWlsLmNvbQ==', 'base64').toString('utf-8');
   const fallbackPass = Buffer.from('aHFqeW16bHZtZHZ6dnlzcQ==', 'base64').toString('utf-8');
 
-  const user = process.env.GMAIL_USER || process.env.EMAIL_USER || fallbackUser;
+  const user = (process.env.GMAIL_USER || process.env.EMAIL_USER || fallbackUser).trim();
   const rawPass = process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS || process.env.EMAIL_PASS || fallbackPass;
   const pass = rawPass.replace(/\s+/g, '');
 
@@ -29,13 +29,15 @@ function getGmailTransporter() {
     return null;
   }
 
-  return nodemailer.createTransport({
+  const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
       user,
       pass,
     },
   });
+
+  return { transporter, user };
 }
 
 /**
@@ -61,37 +63,24 @@ function buildOtpEmailHtml(otp: string, recipient: string, username?: string): s
           
           <!-- BRAND HEADER -->
           <tr>
-            <td style="padding: 32px 30px 24px 30px; text-align: center; border-bottom: 1px solid rgba(229, 184, 105, 0.2); background: linear-gradient(135deg, #05140d 0%, #0d281a 100%);">
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: 0 auto;">
-                <tr>
-                  <td align="center" style="padding-bottom: 10px;">
-                    <div style="display: inline-block; width: 44px; height: 44px; line-height: 44px; border-radius: 12px; background: linear-gradient(135deg, #e5b869 0%, #b8862d 100%); text-align: center; font-size: 24px; box-shadow: 0 4px 15px rgba(229,184,105,0.4);">
-                      🏇
-                    </div>
-                  </td>
-                </tr>
-                <tr>
-                  <td align="center">
-                    <h1 style="margin: 0; font-size: 22px; font-weight: 900; color: #ffffff; letter-spacing: 2px; text-transform: uppercase;">
-                      DERBYBET <span style="color: #e5b869;">TURF</span>
-                    </h1>
-                    <p style="margin: 4px 0 0 0; font-size: 11px; font-weight: 700; color: #10b981; letter-spacing: 1.5px; text-transform: uppercase;">
-                      OFFICIAL RACE EXCHANGE • VERIFICATION
-                    </p>
-                  </td>
-                </tr>
-              </table>
+            <td style="padding: 28px 30px 20px 30px; text-align: center; border-bottom: 1px solid rgba(22, 78, 53, 0.5);">
+              <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 1.5px; color: #fbbf24; text-transform: uppercase;">
+                🏇 DERBYBET TURF
+              </h1>
+              <p style="margin: 6px 0 0 0; font-size: 11px; font-weight: 700; color: #34d399; letter-spacing: 2px; text-transform: uppercase;">
+                Official Verification Code
+              </p>
             </td>
           </tr>
 
-          <!-- MAIN BODY -->
+          <!-- MAIN CONTENT -->
           <tr>
-            <td style="padding: 36px 32px 28px 32px; text-align: center;">
-              <p style="margin: 0 0 10px 0; font-size: 16px; color: #e2e8f0; font-weight: 600;">
+            <td style="padding: 30px; text-align: center;">
+              <p style="margin: 0 0 12px 0; font-size: 15px; color: #e2e8f0; line-height: 1.5;">
                 ${greeting}
               </p>
-              <p style="margin: 0 0 28px 0; font-size: 14px; line-height: 1.6; color: #94a3b8;">
-                Please use the official 6-digit verification code below to verify your account for <span style="color: #e5b869; font-weight: 600;">${recipient}</span>:
+              <p style="margin: 0 0 26px 0; font-size: 13px; color: #94a3b8; line-height: 1.6;">
+                Use the following 6-digit security code to verify your account or complete your action:
               </p>
 
               <!-- 6-DIGIT OTP DISPLAY BOXES -->
@@ -135,7 +124,7 @@ function buildOtpEmailHtml(otp: string, recipient: string, username?: string): s
           <tr>
             <td style="padding: 24px 30px; background-color: #020604; border-top: 1px solid rgba(22, 78, 53, 0.4); text-align: center;">
               <p style="margin: 0 0 6px 0; font-size: 12px; font-weight: 700; color: #cbd5e1;">
-                DerbyBet Turf Tactics • Live Horse Racing Exchange
+                DerbyBet Turf • Live Horse Racing Exchange
               </p>
               <p style="margin: 0; font-size: 11px; color: #64748b;">
                 © 2026 DerbyBet Turf. All rights reserved. Automated security notification.
@@ -157,9 +146,9 @@ function buildOtpEmailHtml(otp: string, recipient: string, username?: string): s
  */
 export async function sendOtpEmail({ to, otp, username }: SendOtpParams): Promise<MailResult> {
   const cleanEmail = to.trim().toLowerCase();
-  const transporter = getGmailTransporter();
+  const mailConfig = getGmailTransporter();
 
-  if (!transporter) {
+  if (!mailConfig) {
     return {
       success: true,
       simulated: true,
@@ -167,23 +156,23 @@ export async function sendOtpEmail({ to, otp, username }: SendOtpParams): Promis
     };
   }
 
+  const { transporter, user } = mailConfig;
+
   try {
-    const fromAddress = 'Turf Tactics <Turftactics2026@gmail.com>';
+    const fromAddress = `"DerbyBet Turf" <${user}>`;
     const info = await transporter.sendMail({
       from: fromAddress,
       to: cleanEmail,
+      replyTo: user,
       subject: `${otp} is your DerbyBet Turf verification code`,
       text: `Hello,\n\nYour 6-digit DerbyBet Turf verification code is: ${otp}\n\nThis code is valid for 10 minutes.\n\nNever share this code with anyone.\n\n— DerbyBet Turf Security Team`,
       html: buildOtpEmailHtml(otp, cleanEmail, username),
       headers: {
-        'X-Priority': '1',
-        'Importance': 'High',
-        'X-Auto-Response-Suppress': 'All',
-        'X-Entity-Ref-ID': `turf-otp-${cleanEmail}-${Date.now()}`,
+        'X-Entity-Ref-ID': `derby-otp-${Date.now()}`,
       },
     });
 
-    console.log(`✅ [GMAIL LUXURY OTP DELIVERED TO INBOX] To: ${cleanEmail} | Message ID: ${info.messageId}`);
+    console.log(`✅ [GMAIL LUXURY OTP DELIVERED TO INBOX] From: ${fromAddress} | To: ${cleanEmail} | Message ID: ${info.messageId}`);
 
     return {
       success: true,
