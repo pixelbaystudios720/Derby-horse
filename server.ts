@@ -98,7 +98,11 @@ interface User {
 interface OddsLog {
   win_odds: number;
   place_odds: number;
-  updated_at: string;
+  old_win?: number;
+  old_place?: number;
+  updated_at?: string;
+  timestamp?: string;
+  changed_by?: string;
 }
 
 interface Horse {
@@ -153,7 +157,7 @@ interface Race {
   distance: string; // Distance
   going?: string;
   class_grade?: string;
-  status: 'DRAFT' | 'UPCOMING' | 'OPEN' | 'LIVE' | 'CLOSED' | 'RESULTED' | 'OPEN_FOR_BETTING' | 'SUSPENDED';
+  status: 'DRAFT' | 'UPCOMING' | 'OPEN' | 'LIVE' | 'CLOSED' | 'RESULTED' | 'OPEN_FOR_BETTING' | 'SUSPENDED' | 'ABANDONED';
   is_suspended?: boolean;
   image_url?: string;
   winner_horse_id: string | null;
@@ -161,6 +165,7 @@ interface Race {
   position_1?: string[];
   position_2?: string[];
   position_3?: string[];
+  position_4?: string[];
   is_dead_heat?: boolean;
   dead_heat_note?: string;
   horses: Horse[];
@@ -184,9 +189,10 @@ interface Bet {
   bet_type: 'WIN' | 'PLACE';
   odds: number;
   stake: number;
+  amount?: number;
   potential_win: number;
-  payout: number;
-  status: 'PENDING' | 'WON' | 'LOST';
+  payout?: number;
+  status: 'PENDING' | 'WON' | 'LOST' | 'CANCELLED' | 'REFUNDED';
   is_dead_heat?: boolean;
   dead_heat_divider?: number;
   placed_at: string;
@@ -2857,7 +2863,7 @@ app.post(['/api/admin/reset-demo', '/api/admin/reset-database', '/api/admin/clea
         password_hash: 'admin123',
         balance: 500000,
         exposure: 0,
-        role: 'admin',
+        role: 'admin' as const,
         is_blocked: false,
         profile_photo: 'https://api.dicebear.com/7.x/bottts/svg?seed=admin',
         created_at: new Date().toISOString(),

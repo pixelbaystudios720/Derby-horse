@@ -98,7 +98,7 @@ var RaceSchema = new import_mongoose.Schema(
     class_grade: { type: String, default: "Class 1" },
     status: {
       type: String,
-      enum: ["DRAFT", "UPCOMING", "OPEN", "LIVE", "CLOSED", "RESULTED", "OPEN_FOR_BETTING", "SUSPENDED"],
+      enum: ["DRAFT", "UPCOMING", "OPEN", "LIVE", "CLOSED", "RESULTED", "OPEN_FOR_BETTING", "SUSPENDED", "ABANDONED"],
       default: "UPCOMING",
       index: true
     },
@@ -109,6 +109,7 @@ var RaceSchema = new import_mongoose.Schema(
     position_1: { type: [String], default: [] },
     position_2: { type: [String], default: [] },
     position_3: { type: [String], default: [] },
+    position_4: { type: [String], default: [] },
     is_dead_heat: { type: Boolean, default: false },
     dead_heat_note: { type: String, default: "" },
     horses: { type: [HorseSchema], default: [] },
@@ -135,9 +136,10 @@ var BetSchema = new import_mongoose.Schema(
     bet_type: { type: String, enum: ["WIN", "PLACE"], required: true, index: true },
     odds: { type: Number, required: true },
     stake: { type: Number, required: true },
+    amount: { type: Number },
     potential_win: { type: Number, required: true },
     payout: { type: Number, default: 0 },
-    status: { type: String, enum: ["PENDING", "WON", "LOST"], default: "PENDING", index: true },
+    status: { type: String, enum: ["PENDING", "WON", "LOST", "CANCELLED", "REFUNDED"], default: "PENDING", index: true },
     is_dead_heat: { type: Boolean, default: false },
     dead_heat_divider: { type: Number, default: 1 },
     placed_at: { type: String, default: () => (/* @__PURE__ */ new Date()).toISOString() },

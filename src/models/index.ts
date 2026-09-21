@@ -97,7 +97,7 @@ export interface IRace extends Document {
   distance: string;
   going?: string;
   class_grade?: string;
-  status: 'DRAFT' | 'UPCOMING' | 'OPEN' | 'LIVE' | 'CLOSED' | 'RESULTED' | 'OPEN_FOR_BETTING' | 'SUSPENDED';
+  status: 'DRAFT' | 'UPCOMING' | 'OPEN' | 'LIVE' | 'CLOSED' | 'RESULTED' | 'OPEN_FOR_BETTING' | 'SUSPENDED' | 'ABANDONED';
   is_suspended?: boolean;
   image_url?: string;
   winner_horse_id: string | null;
@@ -105,6 +105,7 @@ export interface IRace extends Document {
   position_1: string[];
   position_2: string[];
   position_3: string[];
+  position_4?: string[];
   is_dead_heat?: boolean;
   dead_heat_note?: string;
   horses: IHorse[];
@@ -126,7 +127,7 @@ const RaceSchema = new Schema<IRace>(
     class_grade: { type: String, default: 'Class 1' },
     status: {
       type: String,
-      enum: ['DRAFT', 'UPCOMING', 'OPEN', 'LIVE', 'CLOSED', 'RESULTED', 'OPEN_FOR_BETTING', 'SUSPENDED'],
+      enum: ['DRAFT', 'UPCOMING', 'OPEN', 'LIVE', 'CLOSED', 'RESULTED', 'OPEN_FOR_BETTING', 'SUSPENDED', 'ABANDONED'],
       default: 'UPCOMING',
       index: true,
     },
@@ -137,6 +138,7 @@ const RaceSchema = new Schema<IRace>(
     position_1: { type: [String], default: [] },
     position_2: { type: [String], default: [] },
     position_3: { type: [String], default: [] },
+    position_4: { type: [String], default: [] },
     is_dead_heat: { type: Boolean, default: false },
     dead_heat_note: { type: String, default: '' },
     horses: { type: [HorseSchema], default: [] },
@@ -168,9 +170,10 @@ export interface IBet extends Document {
   bet_type: 'WIN' | 'PLACE';
   odds: number;
   stake: number;
+  amount?: number;
   potential_win: number;
-  payout: number;
-  status: 'PENDING' | 'WON' | 'LOST';
+  payout?: number;
+  status: 'PENDING' | 'WON' | 'LOST' | 'CANCELLED' | 'REFUNDED';
   is_dead_heat?: boolean;
   dead_heat_divider?: number;
   placed_at: string;
@@ -195,9 +198,10 @@ const BetSchema = new Schema<IBet>(
     bet_type: { type: String, enum: ['WIN', 'PLACE'], required: true, index: true },
     odds: { type: Number, required: true },
     stake: { type: Number, required: true },
+    amount: { type: Number },
     potential_win: { type: Number, required: true },
     payout: { type: Number, default: 0 },
-    status: { type: String, enum: ['PENDING', 'WON', 'LOST'], default: 'PENDING', index: true },
+    status: { type: String, enum: ['PENDING', 'WON', 'LOST', 'CANCELLED', 'REFUNDED'], default: 'PENDING', index: true },
     is_dead_heat: { type: Boolean, default: false },
     dead_heat_divider: { type: Number, default: 1 },
     placed_at: { type: String, default: () => new Date().toISOString() },

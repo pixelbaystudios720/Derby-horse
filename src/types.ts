@@ -118,6 +118,7 @@ export interface Bet {
   bet_type: BetType;
   odds: number;
   stake: number;
+  amount?: number;
   potential_win: number;
   payout?: number;
   status: BetStatus;

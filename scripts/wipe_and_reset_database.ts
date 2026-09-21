@@ -64,7 +64,7 @@ async function resetDatabase() {
     password_hash: 'admin123',
     balance: 500000,
     exposure: 0,
-    role: 'admin',
+    role: 'admin' as const,
     is_blocked: false,
     profile_photo: 'https://api.dicebear.com/7.x/bottts/svg?seed=admin',
     created_at: new Date().toISOString(),
