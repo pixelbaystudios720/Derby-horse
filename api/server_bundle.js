@@ -2365,9 +2365,12 @@ app.get("/api/admin/users", async (req, res) => {
   try {
     await ensureMongoConnected();
     const mongoUsers = await UserModel.find({
-      role: { $ne: "admin" },
-      id: { $ne: "usr_admin_master" },
-      username: { $ne: "admin" }
+      $or: [
+        { role: { $ne: "admin" } },
+        { role: { $exists: false } }
+      ],
+      id: { $nin: ["usr_admin", "usr_admin_master"] },
+      username: { $nin: ["admin", "masteradmin"] }
     }).sort({ created_at: -1 }).lean();
     if (mongoUsers && mongoUsers.length > 0) {
       const seenRefs2 = /* @__PURE__ */ new Set();
@@ -2405,7 +2408,14 @@ app.get("/api/admin/users", async (req, res) => {
 app.get("/api/admin/overview", async (req, res) => {
   try {
     await ensureMongoConnected();
-    const totalUsers = await UserModel.countDocuments({ role: { $ne: "admin" }, id: { $ne: "usr_admin_master" }, username: { $ne: "admin" } });
+    const totalUsers = await UserModel.countDocuments({
+      $or: [
+        { role: { $ne: "admin" } },
+        { role: { $exists: false } }
+      ],
+      id: { $nin: ["usr_admin", "usr_admin_master"] },
+      username: { $nin: ["admin", "masteradmin"] }
+    });
     const totalBets = await BetModel.countDocuments();
     const bets = await BetModel.find().lean();
     const totalVolume = bets.reduce((s, b) => s + (b.stake || 0), 0);
@@ -2432,6 +2442,75 @@ app.get("/api/admin/overview", async (req, res) => {
         openRaces: db.races.filter((r) => r.status === "OPEN" || r.status === "LIVE" || r.status === "OPEN_FOR_BETTING").length,
         pendingBetsCount: db.bets.filter((b) => b.status === "PENDING").length
       }
+    });
+  }
+});
+app.get("/api/admin/bootstrap", async (req, res) => {
+  try {
+    await ensureMongoConnected();
+    const [mongoUsers, mongoBets, mongoDeposits, mongoWithdrawals, mongoCenters, mongoDays] = await Promise.all([
+      UserModel.find({
+        $or: [{ role: { $ne: "admin" } }, { role: { $exists: false } }],
+        id: { $nin: ["usr_admin", "usr_admin_master"] },
+        username: { $nin: ["admin", "masteradmin"] }
+      }).sort({ created_at: -1 }).lean().catch(() => []),
+      BetModel.find().sort({ placed_at: -1 }).lean().catch(() => []),
+      DepositRequestModel.find().sort({ created_at: -1 }).lean().catch(() => []),
+      WithdrawalRequestModel.find().sort({ created_at: -1 }).lean().catch(() => []),
+      RaceCenterModel.find().sort({ name: 1 }).lean().catch(() => []),
+      RaceDayModel.find().sort({ race_date: -1 }).lean().catch(() => [])
+    ]);
+    const rawUsers = mongoUsers && mongoUsers.length > 0 ? mongoUsers : db.users.filter((u) => u.role !== "admin" && u.username !== "admin");
+    const seenRefs = /* @__PURE__ */ new Set();
+    const usersList = rawUsers.map((u, idx) => {
+      const userObj = { ...u };
+      delete userObj.password_hash;
+      if (!userObj.ref_id || seenRefs.has(userObj.ref_id)) {
+        userObj.ref_id = `TURF-${10001 + idx}`;
+      }
+      seenRefs.add(userObj.ref_id);
+      return userObj;
+    });
+    const betsList = mongoBets && mongoBets.length > 0 ? mongoBets : db.bets;
+    const totalVolume = betsList.reduce((s, b) => s + (b.stake || b.amount || 0), 0);
+    const pendingBetsCount = betsList.filter((b) => b.status === "PENDING").length;
+    const stats = {
+      totalUsers: usersList.length,
+      totalBets: betsList.length,
+      totalVolume,
+      openRaces: db.races.filter((r) => r.status === "OPEN" || r.status === "LIVE" || r.status === "OPEN_FOR_BETTING").length,
+      pendingBetsCount
+    };
+    return res.json({
+      success: true,
+      stats,
+      users: usersList,
+      bets: betsList,
+      deposits: mongoDeposits && mongoDeposits.length > 0 ? mongoDeposits : db.deposit_requests || [],
+      withdrawals: mongoWithdrawals && mongoWithdrawals.length > 0 ? mongoWithdrawals : db.withdrawal_requests || [],
+      race_centers: mongoCenters && mongoCenters.length > 0 ? mongoCenters : db.race_centers || [],
+      race_days: mongoDays && mongoDays.length > 0 ? mongoDays : db.race_days || [],
+      system_settings: db.system_settings || {}
+    });
+  } catch (err) {
+    console.error("Admin bootstrap error:", err);
+    const realUsers = db.users.filter((u) => u.role !== "admin" && u.username !== "admin");
+    return res.json({
+      success: true,
+      stats: {
+        totalUsers: realUsers.length,
+        totalBets: db.bets.length,
+        totalVolume: db.bets.reduce((s, b) => s + (b.stake || 0), 0),
+        openRaces: db.races.filter((r) => r.status === "OPEN" || r.status === "LIVE" || r.status === "OPEN_FOR_BETTING").length,
+        pendingBetsCount: db.bets.filter((b) => b.status === "PENDING").length
+      },
+      users: realUsers,
+      bets: db.bets,
+      deposits: db.deposit_requests || [],
+      withdrawals: db.withdrawal_requests || [],
+      race_centers: db.race_centers || [],
+      race_days: db.race_days || [],
+      system_settings: db.system_settings || {}
     });
   }
 });

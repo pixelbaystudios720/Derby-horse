@@ -260,9 +260,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [editDayCenterId, setEditDayCenterId] = useState('');
   const [editDayStatus, setEditDayStatus] = useState<'DRAFT' | 'PUBLISHED'>('PUBLISHED');
 
-  const [users, setUsers] = useState<User[]>([]);
-  const [allBets, setAllBets] = useState<Bet[]>([]);
-  const [stats, setStats] = useState<any>(null);
+  const [users, setUsers] = useState<User[]>(() => {
+    try {
+      const cached = localStorage.getItem('derby_admin_users');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [allBets, setAllBets] = useState<Bet[]>(() => {
+    try {
+      const cached = localStorage.getItem('derby_admin_bets');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [stats, setStats] = useState<any>(() => {
+    try {
+      const cached = localStorage.getItem('derby_admin_stats');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [toast, setToast] = useState<{ id: number; message: string; type: 'success' | 'warning' | 'error' | 'info' } | null>(null);
@@ -637,7 +658,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Load Admin Data
+  // Load Admin Data (Ultra-fast single roundtrip bootstrap)
   const loadAdminData = async (isBackground = false) => {
     // Don't waste CPU/invocations if the browser tab is hidden in background
     if (isBackground && typeof document !== 'undefined' && document.hidden) {
@@ -645,8 +666,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
 
     try {
-      if (!isBackground && !stats) setIsLoading(true);
-      const [statsData, usersData, betsData, depositsData, withdrawalsData, centersData, daysData, sysSettings] = await Promise.all([
+      if (!isBackground && !stats && users.length === 0) setIsLoading(true);
+
+      // 1. Try unified fast bootstrap endpoint first
+      const bootstrap = await api.getAdminBootstrap();
+      if (bootstrap) {
+        if (bootstrap.stats) setStats(bootstrap.stats);
+        if (Array.isArray(bootstrap.users)) setUsers(bootstrap.users);
+        if (Array.isArray(bootstrap.bets)) setAllBets(bootstrap.bets);
+        if (Array.isArray(bootstrap.deposits)) setDepositRequests(bootstrap.deposits);
+        if (Array.isArray(bootstrap.withdrawals)) setWithdrawalRequests(bootstrap.withdrawals);
+        if (Array.isArray(bootstrap.race_centers)) {
+          setRaceCenters(bootstrap.race_centers);
+          if (!newDayCenterId && bootstrap.race_centers.length > 0) {
+            setNewDayCenterId(bootstrap.race_centers[0].id);
+          }
+        }
+        if (Array.isArray(bootstrap.race_days)) setRaceDays(bootstrap.race_days);
+        if (bootstrap.system_settings) {
+          const sys = bootstrap.system_settings;
+          setSystemSettings(sys);
+          if (sys.max_bet_per_horse !== undefined) setLimitMaxBet(String(sys.max_bet_per_horse));
+          if (sys.max_win_per_race !== undefined) setLimitMaxWin(String(sys.max_win_per_race));
+          if (sys.min_bet_amount !== undefined) setLimitMinBet(String(sys.min_bet_amount));
+        }
+        return;
+      }
+
+      // 2. Resilient fallback with Promise.allSettled (prevents 1 failure from dropping other data)
+      const results = await Promise.allSettled([
         api.getAdminOverview(),
         api.getAdminUsers(),
         api.getAdminAllBets(),
@@ -656,21 +704,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         api.getRaceDays(),
         api.getSystemSettings(),
       ]);
-      setStats((prev: any) => (JSON.stringify(prev) === JSON.stringify(statsData) ? prev : statsData));
-      setUsers((prev) => (JSON.stringify(prev) === JSON.stringify(usersData) ? prev : usersData));
-      setAllBets((prev) => (JSON.stringify(prev) === JSON.stringify(betsData) ? prev : betsData));
-      setDepositRequests((prev) => (JSON.stringify(prev) === JSON.stringify(depositsData) ? prev : depositsData));
-      setWithdrawalRequests((prev) => (JSON.stringify(prev) === JSON.stringify(withdrawalsData) ? prev : withdrawalsData));
-      setRaceCenters((prev) => (JSON.stringify(prev) === JSON.stringify(centersData) ? prev : centersData));
-      setRaceDays((prev) => (JSON.stringify(prev) === JSON.stringify(daysData) ? prev : daysData));
-      if (sysSettings) {
+
+      const [resStats, resUsers, resBets, resDeposits, resWithdrawals, resCenters, resDays, resSys] = results;
+
+      if (resStats.status === 'fulfilled' && resStats.value) {
+        setStats(resStats.value);
+        try { localStorage.setItem('derby_admin_stats', JSON.stringify(resStats.value)); } catch {}
+      }
+      if (resUsers.status === 'fulfilled' && Array.isArray(resUsers.value)) {
+        setUsers(resUsers.value);
+        try { localStorage.setItem('derby_admin_users', JSON.stringify(resUsers.value)); } catch {}
+      }
+      if (resBets.status === 'fulfilled' && Array.isArray(resBets.value)) {
+        setAllBets(resBets.value);
+        try { localStorage.setItem('derby_admin_bets', JSON.stringify(resBets.value)); } catch {}
+      }
+      if (resDeposits.status === 'fulfilled' && Array.isArray(resDeposits.value)) {
+        setDepositRequests(resDeposits.value);
+      }
+      if (resWithdrawals.status === 'fulfilled' && Array.isArray(resWithdrawals.value)) {
+        setWithdrawalRequests(resWithdrawals.value);
+      }
+      if (resCenters.status === 'fulfilled' && Array.isArray(resCenters.value)) {
+        setRaceCenters(resCenters.value);
+        if (!newDayCenterId && resCenters.value.length > 0) {
+          setNewDayCenterId(resCenters.value[0].id);
+        }
+      }
+      if (resDays.status === 'fulfilled' && Array.isArray(resDays.value)) {
+        setRaceDays(resDays.value);
+      }
+      if (resSys.status === 'fulfilled' && resSys.value) {
+        const sysSettings = resSys.value;
         setSystemSettings(sysSettings);
         if (sysSettings.max_bet_per_horse !== undefined) setLimitMaxBet(String(sysSettings.max_bet_per_horse));
         if (sysSettings.max_win_per_race !== undefined) setLimitMaxWin(String(sysSettings.max_win_per_race));
         if (sysSettings.min_bet_amount !== undefined) setLimitMinBet(String(sysSettings.min_bet_amount));
-      }
-      if (!newDayCenterId && centersData.length > 0) {
-        setNewDayCenterId(centersData[0].id);
       }
     } catch (err: any) {
       console.error('Error loading admin data:', err);

@@ -322,17 +322,50 @@ export const api = {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.users)) {
+          try { localStorage.setItem('derby_admin_users', JSON.stringify(data.users)); } catch {}
           return data.users;
         }
       }
     } catch (e) {
       console.warn('Failed to fetch admin users:', e);
     }
+    try {
+      const cached = localStorage.getItem('derby_admin_users');
+      if (cached) return JSON.parse(cached);
+    } catch {}
     return [];
   },
 
   async getAdminUsers(): Promise<User[]> {
     return this.getUsers();
+  },
+
+  async getAdminBootstrap(): Promise<{
+    stats: any;
+    users: User[];
+    bets: Bet[];
+    deposits: any[];
+    withdrawals: any[];
+    race_centers: RaceCenter[];
+    race_days: RaceDay[];
+    system_settings: any;
+  } | null> {
+    try {
+      const res = await fetch(`${API_BASE}/admin/bootstrap`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          if (data.users) try { localStorage.setItem('derby_admin_users', JSON.stringify(data.users)); } catch {}
+          if (data.stats) try { localStorage.setItem('derby_admin_stats', JSON.stringify(data.stats)); } catch {}
+          if (data.bets) try { localStorage.setItem('derby_admin_bets', JSON.stringify(data.bets)); } catch {}
+          if (data.race_centers) try { localStorage.setItem('derby_race_centers', JSON.stringify(data.race_centers)); } catch {}
+          return data;
+        }
+      }
+    } catch (e) {
+      console.warn('Admin bootstrap failed:', e);
+    }
+    return null;
   },
 
   async adjustUserBalance(userId: string, amount: number, type: 'CREDIT' | 'DEBIT', description?: string): Promise<{ success: boolean; message: string; user?: User }> {
