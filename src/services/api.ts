@@ -1960,110 +1960,213 @@ export const api = {
   },
 
   async publishRace(raceId: string): Promise<Race> {
-    return this.updateRaceStatus(raceId, 'OPEN');
+    return this.updateRaceStatus(raceId, 'LIVE');
   },
 
-  async updateHorseOdds(horseId: string, win_odds?: number, place_odds?: number): Promise<void> {
+  async updateHorseOdds(horseId: string, winOdds: number, placeOdds: number): Promise<{ success: boolean; horse?: Horse; race?: Race }> {
     try {
-      await fetch(`${API_BASE}/admin/horses/${horseId}/odds`, {
+      const res = await fetch(`${API_BASE}/admin/horses/${horseId}/odds`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ win_odds, place_odds }),
+        body: JSON.stringify({ win_odds: winOdds, place_odds: placeOdds }),
       });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.race) {
+          this.saveLocalRace(data.race);
+          realtimeOdds.broadcast({
+            event: 'ODDS_UPDATED',
+            race_id: data.race.id,
+            race: data.race,
+            timestamp: Date.now(),
+          });
+        }
+        return data;
+      }
     } catch {}
 
     const allRaces = await this.getRaces('all');
     for (const r of allRaces) {
-      const h = r.horses?.find((item) => item.id === horseId);
+      const h = r.horses.find(item => item.id === horseId);
       if (h) {
-        if (win_odds !== undefined && !isNaN(win_odds)) h.win_odds = Number(win_odds);
-        if (place_odds !== undefined && !isNaN(place_odds)) h.place_odds = Number(place_odds);
+        h.win_odds = winOdds;
+        h.place_odds = placeOdds;
         this.saveLocalRace(r);
-
         realtimeOdds.broadcast({
-          event: 'odds_status_update',
+          event: 'ODDS_UPDATED',
           race_id: r.id,
-          horse_id: horseId,
-          is_suspended: h.is_suspended,
-          win_odds: h.win_odds,
-          place_odds: h.place_odds,
           race: r,
           timestamp: Date.now(),
         });
-        break;
+        return { success: true, horse: h, race: r };
       }
     }
+    return { success: true };
   },
 
-  async suspendHorse(raceId: string, horseId: string): Promise<Race | null> {
-    fetch(`${API_BASE}/admin/races/${raceId}/horses/${horseId}/suspend`, { method: 'POST' }).catch(() => {});
-
-    let races: Race[] = [];
+  async suspendHorse(raceId: string, horseId: string): Promise<{ success: boolean; race?: Race; horse?: Horse }> {
     try {
-      const raw = localStorage.getItem('derby_races');
-      if (raw) races = JSON.parse(raw);
+      const res = await fetch(`${API_BASE}/admin/races/${raceId}/horses/${horseId}/suspend`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.race) {
+          this.saveLocalRace(data.race);
+          realtimeOdds.broadcast({
+            event: 'ODDS_UPDATED',
+            race_id: data.race.id,
+            race: data.race,
+            timestamp: Date.now(),
+          });
+        }
+        return data;
+      }
     } catch {}
 
-    const race = races.find((r) => r.id === raceId);
-    if (!race) return null;
-
-    const horse = race.horses.find((h) => h.id === horseId);
-    if (horse) {
-      horse.is_suspended = true;
+    const allRaces = await this.getRaces('all');
+    const race = allRaces.find(r => r.id === raceId);
+    if (race) {
+      const horse = race.horses.find(h => h.id === horseId);
+      if (horse) horse.is_suspended = true;
       this.saveLocalRace(race);
-
       realtimeOdds.broadcast({
-        event: 'SUSPEND_HORSE',
-        race_id: raceId,
-        horse_id: horseId,
-        is_suspended: true,
-        race,
+        event: 'ODDS_UPDATED',
+        race_id: race.id,
+        race: race,
         timestamp: Date.now(),
       });
+      return { success: true, race, horse };
     }
-    return race;
+    return { success: true };
   },
 
-  async resumeHorse(raceId: string, horseId: string, new_win_odds?: number, new_place_odds?: number): Promise<Race | null> {
-    fetch(`${API_BASE}/admin/races/${raceId}/horses/${horseId}/resume`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ win_odds: new_win_odds, place_odds: new_place_odds }),
-    }).catch(() => {});
-
-    let races: Race[] = [];
+  async resumeHorse(raceId: string, horseId: string, winOdds?: number, placeOdds?: number): Promise<{ success: boolean; race?: Race; horse?: Horse }> {
     try {
-      const raw = localStorage.getItem('derby_races');
-      if (raw) races = JSON.parse(raw);
+      const res = await fetch(`${API_BASE}/admin/races/${raceId}/horses/${horseId}/resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ win_odds: winOdds, place_odds: placeOdds }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.race) {
+          this.saveLocalRace(data.race);
+          realtimeOdds.broadcast({
+            event: 'ODDS_UPDATED',
+            race_id: data.race.id,
+            race: data.race,
+            timestamp: Date.now(),
+          });
+        }
+        return data;
+      }
     } catch {}
 
-    const race = races.find((r) => r.id === raceId);
-    if (!race) return null;
-
-    const horse = race.horses.find((h) => h.id === horseId);
-    if (horse) {
-      horse.is_suspended = false;
-      if (new_win_odds !== undefined && !isNaN(new_win_odds) && new_win_odds > 0) {
-        horse.win_odds = Number(new_win_odds);
-      }
-      if (new_place_odds !== undefined && !isNaN(new_place_odds) && new_place_odds > 0) {
-        horse.place_odds = Number(new_place_odds);
+    const allRaces = await this.getRaces('all');
+    const race = allRaces.find(r => r.id === raceId);
+    if (race) {
+      const horse = race.horses.find(h => h.id === horseId);
+      if (horse) {
+        horse.is_suspended = false;
+        if (winOdds !== undefined && !isNaN(winOdds) && winOdds > 0) horse.win_odds = winOdds;
+        if (placeOdds !== undefined && !isNaN(placeOdds) && placeOdds > 0) horse.place_odds = placeOdds;
       }
       this.saveLocalRace(race);
-
       realtimeOdds.broadcast({
-        event: 'RESUME_HORSE',
-        race_id: raceId,
-        horse_id: horseId,
-        is_suspended: false,
-        win_odds: horse.win_odds,
-        place_odds: horse.place_odds,
-        race,
+        event: 'ODDS_UPDATED',
+        race_id: race.id,
+        race: race,
         timestamp: Date.now(),
       });
+      return { success: true, race, horse };
     }
-    return race;
+    return { success: true };
   },
+
+  async suspendAll(raceId: string): Promise<{ success: boolean; race?: Race }> {
+    try {
+      const res = await fetch(`${API_BASE}/admin/races/${raceId}/suspend`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.race) {
+          this.saveLocalRace(data.race);
+          realtimeOdds.broadcast({
+            event: 'ODDS_UPDATED',
+            race_id: data.race.id,
+            race: data.race,
+            timestamp: Date.now(),
+          });
+        }
+        return data;
+      }
+    } catch {}
+
+    const allRaces = await this.getRaces('all');
+    const race = allRaces.find(r => r.id === raceId);
+    if (race) {
+      race.is_suspended = true;
+      race.horses.forEach(h => { h.is_suspended = true; });
+      this.saveLocalRace(race);
+      realtimeOdds.broadcast({
+        event: 'ODDS_UPDATED',
+        race_id: race.id,
+        race: race,
+        timestamp: Date.now(),
+      });
+      return { success: true, race };
+    }
+    return { success: true };
+  },
+
+  async resumeAll(raceId: string, oddsMap?: Record<string, { win_odds?: number; place_odds?: number }>): Promise<{ success: boolean; race?: Race }> {
+    try {
+      const res = await fetch(`${API_BASE}/admin/races/${raceId}/resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oddsMap }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.race) {
+          this.saveLocalRace(data.race);
+          realtimeOdds.broadcast({
+            event: 'ODDS_UPDATED',
+            race_id: data.race.id,
+            race: data.race,
+            timestamp: Date.now(),
+          });
+        }
+        return data;
+      }
+    } catch {}
+
+    const allRaces = await this.getRaces('all');
+    const race = allRaces.find(r => r.id === raceId);
+    if (race) {
+      race.is_suspended = false;
+      race.horses.forEach(h => {
+        h.is_suspended = false;
+        if (oddsMap && oddsMap[h.id]) {
+          if (oddsMap[h.id].win_odds) h.win_odds = oddsMap[h.id].win_odds!;
+          if (oddsMap[h.id].place_odds) h.place_odds = oddsMap[h.id].place_odds!;
+        }
+      });
+      this.saveLocalRace(race);
+      realtimeOdds.broadcast({
+        event: 'ODDS_UPDATED',
+        race_id: race.id,
+        race: race,
+        timestamp: Date.now(),
+      });
+      return { success: true, race };
+    }
+    return { success: true };
+  },
+
+
 
   async addHorseToRace(raceId: string, horseData: Partial<Horse>): Promise<Race | null> {
     try {
@@ -2107,110 +2210,7 @@ export const api = {
     return null;
   },
 
-  async suspendAll(raceId: string): Promise<Race | null> {
-    fetch(`${API_BASE}/admin/races/${raceId}/suspend`, { method: 'POST' }).catch(() => {});
 
-    let races: Race[] = [];
-    try {
-      const raw = localStorage.getItem('derby_races');
-      if (raw) races = JSON.parse(raw);
-    } catch {}
-
-    const race = races.find((r) => r.id === raceId);
-    if (!race) return null;
-
-    race.is_suspended = true;
-    for (const h of race.horses) {
-      h.is_suspended = true;
-    }
-    this.saveLocalRace(race);
-
-    realtimeOdds.broadcast({
-      event: 'SUSPEND_ALL',
-      race_id: raceId,
-      is_suspended: true,
-      race,
-      timestamp: Date.now(),
-    });
-    return race;
-  },
-
-  async resumeAll(raceId: string, oddsMap?: Record<string, { win_odds?: number; place_odds?: number }>): Promise<Race | null> {
-    fetch(`${API_BASE}/admin/races/${raceId}/resume`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ oddsMap }),
-    }).catch(() => {});
-
-    let races: Race[] = [];
-    try {
-      const raw = localStorage.getItem('derby_races');
-      if (raw) races = JSON.parse(raw);
-    } catch {}
-
-    const race = races.find((r) => r.id === raceId);
-    if (!race) return null;
-
-    race.is_suspended = false;
-    for (const h of race.horses) {
-      h.is_suspended = false;
-      if (oddsMap && oddsMap[h.id]) {
-        const update = oddsMap[h.id];
-        if (update.win_odds !== undefined && !isNaN(update.win_odds)) h.win_odds = Number(update.win_odds);
-        if (update.place_odds !== undefined && !isNaN(update.place_odds)) h.place_odds = Number(update.place_odds);
-      }
-    }
-    this.saveLocalRace(race);
-
-    realtimeOdds.broadcast({
-      event: 'RESUME_ALL',
-      race_id: raceId,
-      is_suspended: false,
-      race,
-      timestamp: Date.now(),
-    });
-    return race;
-  },
-
-  async toggleHorseSuspend(raceId: string, horseId: string): Promise<Race | null> {
-    let races: Race[] = [];
-    try {
-      const raw = localStorage.getItem('derby_races');
-      if (raw) races = JSON.parse(raw);
-    } catch {}
-
-    const race = races.find((r) => r.id === raceId);
-    if (!race) return null;
-
-    const horse = race.horses.find((h) => h.id === horseId);
-    if (horse) {
-      if (horse.is_suspended) {
-        return this.resumeHorse(raceId, horseId);
-      } else {
-        return this.suspendHorse(raceId, horseId);
-      }
-    }
-    return race;
-  },
-
-  async toggleRaceSuspendAll(raceId: string, forceState?: boolean): Promise<Race | null> {
-    let races: Race[] = [];
-    try {
-      const raw = localStorage.getItem('derby_races');
-      if (raw) races = JSON.parse(raw);
-    } catch {}
-
-    const race = races.find((r) => r.id === raceId);
-    if (!race) return null;
-
-    const isAllSuspended = race.is_suspended || race.horses.every((h) => h.is_suspended);
-    const shouldSuspend = forceState !== undefined ? forceState : !isAllSuspended;
-    if (shouldSuspend) {
-      return this.suspendAll(raceId);
-    } else {
-      return this.resumeAll(raceId);
-    }
-  },
 
   async settleRace(
     raceId: string, 

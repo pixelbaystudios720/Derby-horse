@@ -2293,7 +2293,17 @@ app.put('/api/admin/horses/:id/odds', async (req, res) => {
 // Suspend individual horse in a race
 app.post('/api/admin/races/:raceId/horses/:horseId/suspend', async (req, res) => {
   const { raceId, horseId } = req.params;
-  const race = db.races.find((r) => r.id === raceId);
+  let race = db.races.find((r) => r.id === raceId);
+  if (!race) {
+    try {
+      await ensureMongoConnected();
+      const mongoRace = await RaceModel.findOne({ id: raceId }).lean();
+      if (mongoRace) {
+        race = mongoRace as any;
+        db.races.push(race!);
+      }
+    } catch {}
+  }
   if (!race) return res.status(404).json({ error: 'Race not found' });
   const horse = race.horses.find((h) => h.id === horseId);
   if (!horse) return res.status(404).json({ error: 'Horse not found' });
@@ -2301,21 +2311,31 @@ app.post('/api/admin/races/:raceId/horses/:horseId/suspend', async (req, res) =>
   horse.is_suspended = true;
   saveDatabase();
 
-  ensureMongoConnected().then(async () => {
-    await RaceModel.updateOne(
-      { id: raceId, 'horses.id': horseId },
-      { $set: { 'horses.$.is_suspended': true } }
-    );
-  }).catch(() => {});
+  try {
+    await ensureMongoConnected();
+    await RaceModel.findOneAndUpdate({ id: raceId }, race, { upsert: true, new: true });
+  } catch (err: any) {
+    console.warn('MongoDB horse suspend sync notice:', err.message);
+  }
 
-  return res.json({ success: true, message: `Horse #${horse.horse_no} ${horse.name} suspended`, race, horse });
+  return res.json({ success: true, message: `Horse #${horse.horse_no || horse.serial_no} ${horse.name} suspended`, race, horse, races: db.races });
 });
 
 // Resume individual horse in a race
 app.post('/api/admin/races/:raceId/horses/:horseId/resume', async (req, res) => {
   const { raceId, horseId } = req.params;
   const { win_odds, place_odds } = req.body || {};
-  const race = db.races.find((r) => r.id === raceId);
+  let race = db.races.find((r) => r.id === raceId);
+  if (!race) {
+    try {
+      await ensureMongoConnected();
+      const mongoRace = await RaceModel.findOne({ id: raceId }).lean();
+      if (mongoRace) {
+        race = mongoRace as any;
+        db.races.push(race!);
+      }
+    } catch {}
+  }
   if (!race) return res.status(404).json({ error: 'Race not found' });
   const horse = race.horses.find((h) => h.id === horseId);
   if (!horse) return res.status(404).json({ error: 'Horse not found' });
@@ -2326,20 +2346,30 @@ app.post('/api/admin/races/:raceId/horses/:horseId/resume', async (req, res) => 
 
   saveDatabase();
 
-  ensureMongoConnected().then(async () => {
-    await RaceModel.updateOne(
-      { id: raceId, 'horses.id': horseId },
-      { $set: { 'horses.$.is_suspended': false, 'horses.$.win_odds': horse.win_odds, 'horses.$.place_odds': horse.place_odds } }
-    );
-  }).catch(() => {});
+  try {
+    await ensureMongoConnected();
+    await RaceModel.findOneAndUpdate({ id: raceId }, race, { upsert: true, new: true });
+  } catch (err: any) {
+    console.warn('MongoDB horse resume sync notice:', err.message);
+  }
 
-  return res.json({ success: true, message: `Horse #${horse.horse_no} ${horse.name} resumed`, race, horse });
+  return res.json({ success: true, message: `Horse #${horse.horse_no || horse.serial_no} ${horse.name} resumed`, race, horse, races: db.races });
 });
 
 // Suspend ALL runners in a race
 app.post('/api/admin/races/:raceId/suspend', async (req, res) => {
   const { raceId } = req.params;
-  const race = db.races.find((r) => r.id === raceId);
+  let race = db.races.find((r) => r.id === raceId);
+  if (!race) {
+    try {
+      await ensureMongoConnected();
+      const mongoRace = await RaceModel.findOne({ id: raceId }).lean();
+      if (mongoRace) {
+        race = mongoRace as any;
+        db.races.push(race!);
+      }
+    } catch {}
+  }
   if (!race) return res.status(404).json({ error: 'Race not found' });
 
   race.is_suspended = true;
@@ -2348,21 +2378,31 @@ app.post('/api/admin/races/:raceId/suspend', async (req, res) => {
   }
   saveDatabase();
 
-  ensureMongoConnected().then(async () => {
-    await RaceModel.updateOne(
-      { id: raceId },
-      { $set: { is_suspended: true, 'horses.$[].is_suspended': true } }
-    );
-  }).catch(() => {});
+  try {
+    await ensureMongoConnected();
+    await RaceModel.findOneAndUpdate({ id: raceId }, race, { upsert: true, new: true });
+  } catch (err: any) {
+    console.warn('MongoDB race suspend-all sync notice:', err.message);
+  }
 
-  return res.json({ success: true, message: `All runners suspended in race "${race.name}"`, race });
+  return res.json({ success: true, message: `All runners suspended in race "${race.name}"`, race, races: db.races });
 });
 
 // Resume ALL runners in a race
 app.post('/api/admin/races/:raceId/resume', async (req, res) => {
   const { raceId } = req.params;
   const { oddsMap } = req.body || {};
-  const race = db.races.find((r) => r.id === raceId);
+  let race = db.races.find((r) => r.id === raceId);
+  if (!race) {
+    try {
+      await ensureMongoConnected();
+      const mongoRace = await RaceModel.findOne({ id: raceId }).lean();
+      if (mongoRace) {
+        race = mongoRace as any;
+        db.races.push(race!);
+      }
+    } catch {}
+  }
   if (!race) return res.status(404).json({ error: 'Race not found' });
 
   race.is_suspended = false;
@@ -2376,11 +2416,14 @@ app.post('/api/admin/races/:raceId/resume', async (req, res) => {
   }
   saveDatabase();
 
-  ensureMongoConnected().then(async () => {
+  try {
+    await ensureMongoConnected();
     await RaceModel.findOneAndUpdate({ id: raceId }, race, { upsert: true, new: true });
-  }).catch(() => {});
+  } catch (err: any) {
+    console.warn('MongoDB race resume-all sync notice:', err.message);
+  }
 
-  return res.json({ success: true, message: `All runners resumed in race "${race.name}"`, race });
+  return res.json({ success: true, message: `All runners resumed in race "${race.name}"`, race, races: db.races });
 });
 
 // 5. SETTLE RACE & AUTO PAYOUT BETS (CORE REQUIREMENT - WITH DEAD HEAT SUPPORT)

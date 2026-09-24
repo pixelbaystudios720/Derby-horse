@@ -1758,14 +1758,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           };
         })
       );
-      notify('🚫 Runner suspended in real-time. Users see "Odds Changing". Container opened for odds edit.', 'info');
+      notify('🚫 Runner suspended in real-time. Users see "Odds Changing".', 'info');
 
-      api.suspendHorse(raceId, horseId).then(() => {
-        onRefreshData();
-      }).catch((err) => {
-        notify(err.message || 'Failed to suspend runner', 'error');
-      });
+      await api.suspendHorse(raceId, horseId);
+      await onRefreshData();
     } catch (err: any) {
+      console.error('Failed to suspend runner:', err);
       notify(err.message || 'Failed to suspend runner', 'error');
     }
   };
@@ -1796,12 +1794,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setEditingHorseId(null);
       notify(`✅ Runner resumed! Live Odds: WIN ${winVal}x, PLACE ${placeVal}x`, 'success');
 
-      api.resumeHorse(raceId, horseId, winVal, placeVal).then(() => {
-        onRefreshData();
-      }).catch((err) => {
-        notify(err.message || 'Failed to resume runner', 'error');
-      });
+      await api.resumeHorse(raceId, horseId, winVal, placeVal);
+      await onRefreshData();
     } catch (err: any) {
+      console.error('Failed to resume runner:', err);
       notify(err.message || 'Failed to resume runner', 'error');
     }
   };
@@ -1814,7 +1810,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       );
       notify(`🔒 Betting officially CLOSED for Race #${race.race_no || ''} ${race.name}. Market locked.`, 'warning');
       await api.updateRaceStatus(race.id, 'CLOSED');
-      onRefreshData();
+      await onRefreshData();
     } catch (err: any) {
       notify(err.message || 'Failed to close betting', 'error');
     }
@@ -1836,12 +1832,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       );
       notify('🚫 ALL RUNNERS in race SUSPENDED.', 'warning');
 
-      api.suspendAll(raceId).then(() => {
-        onRefreshData();
-      }).catch((err) => {
-        notify(err.message || 'Failed to suspend all runners', 'error');
-      });
+      await api.suspendAll(raceId);
+      await onRefreshData();
     } catch (err: any) {
+      console.error('Failed to suspend all runners:', err);
       notify(err.message || 'Failed to suspend all runners', 'error');
     }
   };
@@ -1871,12 +1865,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       );
       notify('✅ ALL RUNNERS RESUMED! Live odds updated on user screens.', 'success');
 
-      api.resumeAll(raceId, oddsMap).then(() => {
-        onRefreshData();
-      }).catch((err) => {
-        notify(err.message || 'Failed to resume all runners', 'error');
-      });
+      await api.resumeAll(raceId, oddsMap);
+      await onRefreshData();
     } catch (err: any) {
+      console.error('Failed to resume all runners:', err);
       notify(err.message || 'Failed to resume all runners', 'error');
     }
   };
