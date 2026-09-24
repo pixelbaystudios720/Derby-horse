@@ -763,6 +763,12 @@ export const api = {
         if (data.user) {
           localStorage.setItem('derby_user', JSON.stringify(data.user));
         }
+        financialSync.broadcast();
+        realtimeOdds.broadcast({
+          event: 'RACE_STATUS_CHANGED',
+          race_id: params.race_id,
+          timestamp: Date.now(),
+        });
         return data;
       }
     } catch {}
@@ -868,6 +874,17 @@ export const api = {
   // NOTIFICATIONS ENGINE
   // ----------------------------------------------------------------------
   async getNotifications(userId: string): Promise<UserNotification[]> {
+    try {
+      const res = await fetch(`${API_BASE}/notifications?user_id=${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.notifications) && data.notifications.length > 0) {
+          localStorage.setItem('derby_user_notifications', JSON.stringify(data.notifications));
+          return data.notifications;
+        }
+      }
+    } catch {}
+
     let localNotes: UserNotification[] = [];
     try {
       const raw = localStorage.getItem('derby_user_notifications');
@@ -879,7 +896,6 @@ export const api = {
     );
 
     if (userSpecificNotes.length === 0) {
-      // Seed rich personalized welcome notifications for this user
       const welcomeNotes: UserNotification[] = [
         {
           id: `notif_welcome_${userId}_bonus`,
@@ -915,6 +931,7 @@ export const api = {
 
   async markNotificationRead(notificationId: string): Promise<void> {
     try {
+      fetch(`${API_BASE}/notifications/${notificationId}/read`, { method: 'PUT' }).catch(() => {});
       const raw = localStorage.getItem('derby_user_notifications');
       if (raw) {
         const list: UserNotification[] = JSON.parse(raw);
@@ -927,6 +944,11 @@ export const api = {
 
   async markAllNotificationsRead(userId: string): Promise<void> {
     try {
+      fetch(`${API_BASE}/notifications/read-all`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      }).catch(() => {});
       const raw = localStorage.getItem('derby_user_notifications');
       if (raw) {
         const list: UserNotification[] = JSON.parse(raw);
@@ -949,10 +971,17 @@ export const api = {
     };
 
     try {
+      fetch(`${API_BASE}/notifications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newNotif),
+      }).catch(() => {});
+
       const raw = localStorage.getItem('derby_user_notifications');
       const list: UserNotification[] = raw ? JSON.parse(raw) : [];
       list.unshift(newNotif);
       localStorage.setItem('derby_user_notifications', JSON.stringify(list));
+      financialSync.broadcast();
     } catch {}
 
     return newNotif;
@@ -1948,12 +1977,15 @@ export const api = {
   },
 
   async suspendHorse(raceId: string, horseId: string): Promise<Race | null> {
+    fetch(`${API_BASE}/admin/races/${raceId}/horses/${horseId}/suspend`, { method: 'POST' }).catch(() => {});
+
+    let races: Race[] = [];
     try {
-      await fetch(`${API_BASE}/admin/races/${raceId}/horses/${horseId}/suspend`, { method: 'POST' });
+      const raw = localStorage.getItem('derby_races');
+      if (raw) races = JSON.parse(raw);
     } catch {}
 
-    const allRaces = await this.getRaces('all');
-    const race = allRaces.find((r) => r.id === raceId);
+    const race = races.find((r) => r.id === raceId);
     if (!race) return null;
 
     const horse = race.horses.find((h) => h.id === horseId);
@@ -1974,16 +2006,19 @@ export const api = {
   },
 
   async resumeHorse(raceId: string, horseId: string, new_win_odds?: number, new_place_odds?: number): Promise<Race | null> {
+    fetch(`${API_BASE}/admin/races/${raceId}/horses/${horseId}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ win_odds: new_win_odds, place_odds: new_place_odds }),
+    }).catch(() => {});
+
+    let races: Race[] = [];
     try {
-      await fetch(`${API_BASE}/admin/races/${raceId}/horses/${horseId}/resume`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ win_odds: new_win_odds, place_odds: new_place_odds }),
-      });
+      const raw = localStorage.getItem('derby_races');
+      if (raw) races = JSON.parse(raw);
     } catch {}
 
-    const allRaces = await this.getRaces('all');
-    const race = allRaces.find((r) => r.id === raceId);
+    const race = races.find((r) => r.id === raceId);
     if (!race) return null;
 
     const horse = race.horses.find((h) => h.id === horseId);
@@ -2054,12 +2089,15 @@ export const api = {
   },
 
   async suspendAll(raceId: string): Promise<Race | null> {
+    fetch(`${API_BASE}/admin/races/${raceId}/suspend`, { method: 'POST' }).catch(() => {});
+
+    let races: Race[] = [];
     try {
-      await fetch(`${API_BASE}/admin/races/${raceId}/suspend`, { method: 'POST' });
+      const raw = localStorage.getItem('derby_races');
+      if (raw) races = JSON.parse(raw);
     } catch {}
 
-    const allRaces = await this.getRaces('all');
-    const race = allRaces.find((r) => r.id === raceId);
+    const race = races.find((r) => r.id === raceId);
     if (!race) return null;
 
     race.is_suspended = true;
@@ -2079,12 +2117,19 @@ export const api = {
   },
 
   async resumeAll(raceId: string, oddsMap?: Record<string, { win_odds?: number; place_odds?: number }>): Promise<Race | null> {
+    fetch(`${API_BASE}/admin/races/${raceId}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oddsMap }),
+    }).catch(() => {});
+
+    let races: Race[] = [];
     try {
-      await fetch(`${API_BASE}/admin/races/${raceId}/resume`, { method: 'POST' });
+      const raw = localStorage.getItem('derby_races');
+      if (raw) races = JSON.parse(raw);
     } catch {}
 
-    const allRaces = await this.getRaces('all');
-    const race = allRaces.find((r) => r.id === raceId);
+    const race = races.find((r) => r.id === raceId);
     if (!race) return null;
 
     race.is_suspended = false;
@@ -2109,8 +2154,13 @@ export const api = {
   },
 
   async toggleHorseSuspend(raceId: string, horseId: string): Promise<Race | null> {
-    const allRaces = await this.getRaces('all');
-    const race = allRaces.find((r) => r.id === raceId);
+    let races: Race[] = [];
+    try {
+      const raw = localStorage.getItem('derby_races');
+      if (raw) races = JSON.parse(raw);
+    } catch {}
+
+    const race = races.find((r) => r.id === raceId);
     if (!race) return null;
 
     const horse = race.horses.find((h) => h.id === horseId);
@@ -2125,11 +2175,17 @@ export const api = {
   },
 
   async toggleRaceSuspendAll(raceId: string, forceState?: boolean): Promise<Race | null> {
-    const allRaces = await this.getRaces('all');
-    const race = allRaces.find((r) => r.id === raceId);
+    let races: Race[] = [];
+    try {
+      const raw = localStorage.getItem('derby_races');
+      if (raw) races = JSON.parse(raw);
+    } catch {}
+
+    const race = races.find((r) => r.id === raceId);
     if (!race) return null;
 
-    const shouldSuspend = forceState !== undefined ? forceState : !race.horses.every((h) => h.is_suspended);
+    const isAllSuspended = race.is_suspended || race.horses.every((h) => h.is_suspended);
+    const shouldSuspend = forceState !== undefined ? forceState : !isAllSuspended;
     if (shouldSuspend) {
       return this.suspendAll(raceId);
     } else {

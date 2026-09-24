@@ -342,6 +342,11 @@ export default function App() {
       setMyBets((prev) => (JSON.stringify(prev) === JSON.stringify(betsData) ? prev : betsData));
       setTransactions((prev) => (JSON.stringify(prev) === JSON.stringify(txsData) ? prev : txsData));
       if (freshUser) {
+        if (user && freshUser.balance > user.balance) {
+          const addedAmount = freshUser.balance - user.balance;
+          soundManager.playWinPayout();
+          showToast(`🎉 ₹${addedAmount.toLocaleString('en-IN')} added to your wallet! New Balance: ₹${freshUser.balance.toLocaleString('en-IN')}`, 'success');
+        }
         setUser((prev) => (JSON.stringify(prev) === JSON.stringify(freshUser) ? prev : freshUser));
       }
       setNotifications((prev) => (JSON.stringify(prev) === JSON.stringify(notifsData) ? prev : notifsData));
@@ -366,10 +371,10 @@ export default function App() {
         loadUserFinancials(true);
       });
 
-      // Background polling every 15s when active tab is open
+      // Fast background polling every 3s when active tab is open for instant wallet credit & bet sync
       const pollInterval = setInterval(() => {
         loadUserFinancials(true);
-      }, 15000);
+      }, 3000);
 
       // Instantly refresh financials when user returns to tab
       const handleVisibilityOrFocus = () => {
@@ -419,7 +424,7 @@ export default function App() {
     });
   };
 
-  // Submit bet
+  // Submit bet (0ms instant optimistic deduction)
   const handleSubmitBet = async (params: {
     race_id: string;
     horse_id: string;
@@ -429,15 +434,33 @@ export default function App() {
   }) => {
     if (!user) throw new Error('Please login to place bets');
 
-    const res = await api.placeBet({
-      ...params,
-      user_id: user.id,
-    });
+    // 0ms instant optimistic balance deduction
+    const previousUser = user;
+    const optimisticUser = {
+      ...user,
+      balance: Math.max(0, user.balance - params.stake),
+      exposure: (user.exposure || 0) + params.stake,
+    };
+    setUser(optimisticUser);
+    localStorage.setItem('derby_user', JSON.stringify(optimisticUser));
+    soundManager.playChip();
 
-    setUser(res.user);
-    setMyBets((prev) => [res.bet, ...prev]);
-    showToast(`Bet placed on #${res.bet.horse_no} ${res.bet.horse_name}! Stake: ₹${params.stake.toLocaleString('en-IN')}`);
-    loadUserFinancials();
+    try {
+      const res = await api.placeBet({
+        ...params,
+        user_id: user.id,
+      });
+
+      setUser(res.user);
+      localStorage.setItem('derby_user', JSON.stringify(res.user));
+      setMyBets((prev) => [res.bet, ...prev]);
+      showToast(`Bet placed on #${res.bet.horse_no} ${res.bet.horse_name}! Stake: ₹${params.stake.toLocaleString('en-IN')}`);
+      loadUserFinancials(true);
+    } catch (err: any) {
+      setUser(previousUser);
+      localStorage.setItem('derby_user', JSON.stringify(previousUser));
+      throw err;
+    }
   };
 
   // Handle Deposit (Submits pending deposit with UTR and screenshot proof)

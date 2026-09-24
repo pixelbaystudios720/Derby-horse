@@ -257,6 +257,21 @@ var OtpSchema = new import_mongoose.Schema(
 );
 OtpSchema.index({ createdAt: 1 }, { expireAfterSeconds: 1800 });
 var OtpModel = import_mongoose.default.models.Otp || import_mongoose.default.model("Otp", OtpSchema, "otps");
+var NotificationSchema = new import_mongoose.Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    user_id: { type: String, required: true, index: true },
+    type: { type: String, default: "SYSTEM" },
+    title: { type: String, required: true },
+    message: { type: String, required: true },
+    amount: { type: Number },
+    reference_id: { type: String },
+    is_read: { type: Boolean, default: false, index: true },
+    created_at: { type: String, default: () => (/* @__PURE__ */ new Date()).toISOString() }
+  },
+  { timestamps: true }
+);
+var NotificationModel = import_mongoose.default.models.Notification || import_mongoose.default.model("Notification", NotificationSchema, "notifications");
 
 // src/models/db.ts
 var isConnected = false;
@@ -697,6 +712,7 @@ var DATA_DIR = import_path.default.join(process.cwd(), "data");
 var DB_FILE = import_path.default.join(DATA_DIR, "database.json");
 var defaultData = {
   users: [],
+  notifications: [],
   deposit_requests: [],
   withdrawal_requests: [],
   race_centers: [
@@ -1785,7 +1801,18 @@ app.post("/api/bets/place", async (req, res) => {
       error: db.system_settings.emergency_message || "Betting is temporarily suspended platform-wide by Administrator."
     });
   }
-  const user = db.users.find((u) => u.id === user_id);
+  try {
+    await ensureMongoConnected();
+  } catch {
+  }
+  let user = db.users.find((u) => u.id === user_id);
+  if (!user) {
+    const mongoUser = await UserModel.findOne({ id: user_id }).lean().catch(() => null);
+    if (mongoUser) {
+      user = mongoUser;
+      db.users.push(user);
+    }
+  }
   if (!user) {
     return res.status(404).json({ error: "User not found. Please log in." });
   }
@@ -1794,7 +1821,14 @@ app.post("/api/bets/place", async (req, res) => {
       error: "Your account has been BLOCKED by Administrator. You cannot place bets."
     });
   }
-  const race = db.races.find((r) => r.id === race_id);
+  let race = db.races.find((r) => r.id === race_id);
+  if (!race) {
+    const mongoRace = await RaceModel.findOne({ id: race_id }).lean().catch(() => null);
+    if (mongoRace) {
+      race = mongoRace;
+      db.races.push(race);
+    }
+  }
   if (!race) {
     return res.status(404).json({ error: "Race not found" });
   }
@@ -1842,8 +1876,8 @@ app.post("/api/bets/place", async (req, res) => {
       error: `Potential payout (\u20B9${potentialWin.toLocaleString()}) exceeds the maximum allowed win limit of \u20B9${maxWinPerRace.toLocaleString()} per race.`
     });
   }
-  user.balance -= numStake;
-  user.exposure += numStake;
+  user.balance = Math.max(0, user.balance - numStake);
+  user.exposure = (user.exposure || 0) + numStake;
   const newBet = {
     id: generateId("bet"),
     user_id: user.id,
@@ -1861,6 +1895,7 @@ app.post("/api/bets/place", async (req, res) => {
     bet_type: bet_type.toUpperCase(),
     odds: numOdds,
     stake: numStake,
+    amount: numStake,
     potential_win: potentialWin,
     payout: 0,
     status: "PENDING",
@@ -1881,15 +1916,15 @@ app.post("/api/bets/place", async (req, res) => {
   };
   db.transactions.unshift(tx);
   saveDatabase();
-  if (isMongoDBConnected()) {
-    try {
-      await BetModel.create(newBet);
-      await UserModel.updateOne({ id: user.id }, { $set: { balance: user.balance, exposure: user.exposure } });
-      await TransactionModel.create(tx);
-    } catch (mErr) {
-      console.error("Mongo bet sync error:", mErr);
-    }
-  }
+  ensureMongoConnected().then(async () => {
+    await BetModel.create(newBet).catch(() => {
+    });
+    await UserModel.updateOne({ id: user.id }, { $set: { balance: user.balance, exposure: user.exposure } }).catch(() => {
+    });
+    await TransactionModel.create(tx).catch(() => {
+    });
+  }).catch(() => {
+  });
   const { password_hash, ...userProfile } = user;
   return res.json({
     success: true,
@@ -2216,6 +2251,82 @@ app.put("/api/admin/horses/:id/odds", async (req, res) => {
     console.warn("MongoDB odds update notice:", err.message);
   }
   return res.json({ success: true, horse: foundHorse, race: foundRace });
+});
+app.post("/api/admin/races/:raceId/horses/:horseId/suspend", async (req, res) => {
+  const { raceId, horseId } = req.params;
+  const race = db.races.find((r) => r.id === raceId);
+  if (!race) return res.status(404).json({ error: "Race not found" });
+  const horse = race.horses.find((h) => h.id === horseId);
+  if (!horse) return res.status(404).json({ error: "Horse not found" });
+  horse.is_suspended = true;
+  saveDatabase();
+  ensureMongoConnected().then(async () => {
+    await RaceModel.updateOne(
+      { id: raceId, "horses.id": horseId },
+      { $set: { "horses.$.is_suspended": true } }
+    );
+  }).catch(() => {
+  });
+  return res.json({ success: true, message: `Horse #${horse.horse_no} ${horse.name} suspended`, race, horse });
+});
+app.post("/api/admin/races/:raceId/horses/:horseId/resume", async (req, res) => {
+  const { raceId, horseId } = req.params;
+  const { win_odds, place_odds } = req.body || {};
+  const race = db.races.find((r) => r.id === raceId);
+  if (!race) return res.status(404).json({ error: "Race not found" });
+  const horse = race.horses.find((h) => h.id === horseId);
+  if (!horse) return res.status(404).json({ error: "Horse not found" });
+  horse.is_suspended = false;
+  if (win_odds !== void 0 && !isNaN(Number(win_odds)) && Number(win_odds) > 0) horse.win_odds = Number(win_odds);
+  if (place_odds !== void 0 && !isNaN(Number(place_odds)) && Number(place_odds) > 0) horse.place_odds = Number(place_odds);
+  saveDatabase();
+  ensureMongoConnected().then(async () => {
+    await RaceModel.updateOne(
+      { id: raceId, "horses.id": horseId },
+      { $set: { "horses.$.is_suspended": false, "horses.$.win_odds": horse.win_odds, "horses.$.place_odds": horse.place_odds } }
+    );
+  }).catch(() => {
+  });
+  return res.json({ success: true, message: `Horse #${horse.horse_no} ${horse.name} resumed`, race, horse });
+});
+app.post("/api/admin/races/:raceId/suspend", async (req, res) => {
+  const { raceId } = req.params;
+  const race = db.races.find((r) => r.id === raceId);
+  if (!race) return res.status(404).json({ error: "Race not found" });
+  race.is_suspended = true;
+  for (const h of race.horses) {
+    h.is_suspended = true;
+  }
+  saveDatabase();
+  ensureMongoConnected().then(async () => {
+    await RaceModel.updateOne(
+      { id: raceId },
+      { $set: { is_suspended: true, "horses.$[].is_suspended": true } }
+    );
+  }).catch(() => {
+  });
+  return res.json({ success: true, message: `All runners suspended in race "${race.name}"`, race });
+});
+app.post("/api/admin/races/:raceId/resume", async (req, res) => {
+  const { raceId } = req.params;
+  const { oddsMap } = req.body || {};
+  const race = db.races.find((r) => r.id === raceId);
+  if (!race) return res.status(404).json({ error: "Race not found" });
+  race.is_suspended = false;
+  for (const h of race.horses) {
+    h.is_suspended = false;
+    if (oddsMap && oddsMap[h.id]) {
+      const update = oddsMap[h.id];
+      if (update.win_odds !== void 0 && !isNaN(update.win_odds)) h.win_odds = Number(update.win_odds);
+      if (update.place_odds !== void 0 && !isNaN(update.place_odds)) h.place_odds = Number(update.place_odds);
+    }
+  }
+  saveDatabase();
+  ensureMongoConnected().then(async () => {
+    await RaceModel.findOneAndUpdate({ id: raceId }, race, { upsert: true, new: true });
+  }).catch(() => {
+  });
+  return res.json({ success: true, message: `All runners resumed in race "${race.name}"`, race });
 });
 app.post("/api/admin/races/:id/settle", (req, res) => {
   const { position_1, position_2, position_3, position_4, winner_horse_id, place_horses_ids } = req.body;
@@ -3324,6 +3435,74 @@ app.delete("/api/admin/races/:raceId/horses/:horseId", (req, res) => {
   }
   saveDatabase();
   return res.json({ success: true, message: "Runner removed from race", race });
+});
+app.get("/api/notifications", async (req, res) => {
+  const userId = (req.query.user_id || "").trim();
+  if (!userId) return res.json({ success: true, notifications: [] });
+  try {
+    await ensureMongoConnected();
+    const mongoNotifs = await NotificationModel.find({ user_id: userId }).sort({ created_at: -1 }).limit(50).lean().catch(() => []);
+    if (mongoNotifs && mongoNotifs.length > 0) {
+      return res.json({ success: true, notifications: mongoNotifs });
+    }
+  } catch {
+  }
+  const memNotifs = (db.notifications || []).filter((n) => n.user_id === userId);
+  return res.json({ success: true, notifications: memNotifs });
+});
+app.post("/api/notifications", async (req, res) => {
+  const { user_id, title, message, type, amount, reference_id } = req.body;
+  if (!user_id || !title || !message) {
+    return res.status(400).json({ error: "user_id, title, and message are required" });
+  }
+  const newNotif = {
+    id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    user_id,
+    title,
+    message,
+    type: type || "SYSTEM",
+    amount: amount ? Number(amount) : void 0,
+    reference_id,
+    is_read: false,
+    created_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  db.notifications = db.notifications || [];
+  db.notifications.unshift(newNotif);
+  saveDatabase();
+  ensureMongoConnected().then(async () => {
+    await NotificationModel.create(newNotif);
+  }).catch(() => {
+  });
+  return res.json({ success: true, notification: newNotif });
+});
+app.put("/api/notifications/:id/read", async (req, res) => {
+  const { id } = req.params;
+  if (db.notifications) {
+    const item = db.notifications.find((n) => n.id === id);
+    if (item) item.is_read = true;
+    saveDatabase();
+  }
+  ensureMongoConnected().then(async () => {
+    await NotificationModel.updateOne({ id }, { $set: { is_read: true } });
+  }).catch(() => {
+  });
+  return res.json({ success: true });
+});
+app.put("/api/notifications/read-all", async (req, res) => {
+  const { user_id } = req.body || {};
+  if (user_id && db.notifications) {
+    db.notifications.forEach((n) => {
+      if (n.user_id === user_id) n.is_read = true;
+    });
+    saveDatabase();
+  }
+  if (user_id) {
+    ensureMongoConnected().then(async () => {
+      await NotificationModel.updateMany({ user_id }, { $set: { is_read: true } });
+    }).catch(() => {
+    });
+  }
+  return res.json({ success: true });
 });
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {

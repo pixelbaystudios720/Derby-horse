@@ -447,4 +447,38 @@ OtpSchema.index({ createdAt: 1 }, { expireAfterSeconds: 1800 });
 export const OtpModel: Model<IOtp> =
   mongoose.models.Otp || mongoose.model<IOtp>('Otp', OtpSchema, 'otps');
 
+// ==========================================
+// 13. USER NOTIFICATION SCHEMA & MODEL
+// ==========================================
+export interface INotification extends Document {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  amount?: number;
+  reference_id?: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+export const NotificationSchema = new Schema<INotification>(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    user_id: { type: String, required: true, index: true },
+    type: { type: String, default: 'SYSTEM' },
+    title: { type: String, required: true },
+    message: { type: String, required: true },
+    amount: { type: Number },
+    reference_id: { type: String },
+    is_read: { type: Boolean, default: false, index: true },
+    created_at: { type: String, default: () => new Date().toISOString() },
+  },
+  { timestamps: true }
+);
+
+export const NotificationModel: Model<INotification> =
+  mongoose.models.Notification || mongoose.model<INotification>('Notification', NotificationSchema, 'notifications');
+
+
 

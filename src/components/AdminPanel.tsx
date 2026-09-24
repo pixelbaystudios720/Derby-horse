@@ -755,6 +755,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       loadAdminData(true);
     });
 
+    const pollTimer = setInterval(() => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        loadAdminData(true);
+      }
+    }, 3000);
+
     const handleFocus = () => {
       if (typeof document !== 'undefined' && !document.hidden) {
         loadAdminData(true);
@@ -766,6 +772,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     return () => {
       unsubscribe();
+      clearInterval(pollTimer);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleFocus);
     };
@@ -1825,7 +1832,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleToggleRaceSuspendAll = async (raceId: string, forceState?: boolean) => {
     const race = races.find((r) => r.id === raceId);
     const isAll = forceState !== undefined ? forceState : (race?.is_suspended || race?.horses.every((h) => h.is_suspended));
-    if (isAll) {
+    if (!isAll) {
       await handleSuspendAll(raceId);
     } else {
       await handleResumeAll(raceId);
@@ -3807,15 +3814,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             const isAllSuspended = activeRace.is_suspended || activeRace.horses.every(h => h.is_suspended);
 
             // Live Market Analysis calculations for the active race
-            const raceBets = (allBets || []).filter(b => b.race_id === activeRace.id && b.status !== 'CANCELLED');
+            const raceBets = (allBets || []).filter(b => 
+              (b.race_id === activeRace.id || (b.race_name && activeRace.name && b.race_name.trim().toLowerCase() === activeRace.name.trim().toLowerCase())) && 
+              b.status !== 'CANCELLED'
+            );
             const totalTurnover = raceBets.reduce((sum, b) => sum + (b.stake || b.amount || 0), 0);
             const totalWinTurnover = raceBets.filter(b => b.bet_type === 'WIN').reduce((s, b) => s + (b.stake || b.amount || 0), 0);
             const totalPlaceTurnover = raceBets.filter(b => b.bet_type === 'PLACE').reduce((s, b) => s + (b.stake || b.amount || 0), 0);
 
             const runnerAnalysis = activeRace.horses.map((h, idx) => {
               const slNo = h.serial_no || h.horse_no || (idx + 1);
-              const runnerWinBets = raceBets.filter(b => b.horse_id === h.id && b.bet_type === 'WIN');
-              const runnerPlaceBets = raceBets.filter(b => b.horse_id === h.id && b.bet_type === 'PLACE');
+              const isMatch = (b: Bet) => 
+                b.horse_id === h.id || 
+                (b.horse_name && h.name && b.horse_name.trim().toUpperCase() === h.name.trim().toUpperCase()) ||
+                (b.horse_no !== undefined && (b.horse_no === h.horse_no || b.horse_no === slNo));
+
+              const runnerWinBets = raceBets.filter(b => isMatch(b) && b.bet_type === 'WIN');
+              const runnerPlaceBets = raceBets.filter(b => isMatch(b) && b.bet_type === 'PLACE');
               const winStaked = runnerWinBets.reduce((s, b) => s + (b.stake || b.amount || 0), 0);
               const placeStaked = runnerPlaceBets.reduce((s, b) => s + (b.stake || b.amount || 0), 0);
               const totalStaked = winStaked + placeStaked;
