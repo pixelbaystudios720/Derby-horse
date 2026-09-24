@@ -368,6 +368,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [settlePositions, setSettlePositions] = useState<Record<string, 1 | 2 | 3 | 4 | 0>>({});
   const [settleViewMode, setSettleViewMode] = useState<'DROPDOWN' | 'RUNNERS'>('DROPDOWN');
   const [settleDeadHeatMode, setSettleDeadHeatMode] = useState<boolean>(false);
+  const [isSettledSuccess, setIsSettledSuccess] = useState<boolean>(false);
 
   // Add Race Form state (Clean Blank by Default)
   const [newRaceName, setNewRaceName] = useState('');
@@ -1313,18 +1314,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     try {
       setIsLoading(true);
+      setIsSettledSuccess(false);
       await api.settleRace(settlingRace.id, {
         position_1: p1,
         position_2: p2,
         position_3: p3,
         position_4: p4,
       });
+      setIsSettledSuccess(true);
+      await new Promise((resolve) => setTimeout(resolve, 600));
       setSettlingRace(null);
+      setIsSettledSuccess(false);
       await onRefreshData();
       await loadAdminData();
       setActiveTab('finished');
     } catch (err: any) {
       console.error('Failed to settle race:', err);
+      setIsSettledSuccess(false);
     } finally {
       setIsLoading(false);
     }
@@ -11245,15 +11251,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   type="button"
                   id="confirm-execute-settle-btn"
-                  disabled={isLoading || Object.keys(settlePositions).filter((id) => settlePositions[id] === 1).length === 0}
+                  disabled={isLoading || isSettledSuccess || Object.keys(settlePositions).filter((id) => settlePositions[id] === 1).length === 0}
                   onClick={handleExecuteSettlement}
                   className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2 ${
-                    Object.keys(settlePositions).filter((id) => settlePositions[id] === 1).length === 0
+                    isSettledSuccess
+                      ? 'bg-gradient-to-r from-emerald-400 to-teal-400 text-slate-950 ring-2 ring-emerald-300 shadow-emerald-950/50'
+                      : Object.keys(settlePositions).filter((id) => settlePositions[id] === 1).length === 0
                       ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
                       : 'bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 shadow-amber-950/50 ring-2 ring-amber-400/40'
                   }`}
                 >
-                  {isLoading ? (
+                  {isSettledSuccess ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                      <span>✓ Settled</span>
+                    </>
+                  ) : isLoading ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
                       <span>Settling Payouts...</span>
