@@ -3675,19 +3675,132 @@ app.delete('/api/admin/races/:raceId/horses/:horseId', (req, res) => {
 // NOTIFICATIONS APIS
 // ----------------------------------------------------
 app.get('/api/notifications', async (req, res) => {
-  const userId = (req.query.user_id as string || '').trim();
-  if (!userId) return res.json({ success: true, notifications: [] });
+  const queryUser = (req.query.user_id as string || '').trim();
+  if (!queryUser) return res.json({ success: true, notifications: [] });
 
   try {
     await ensureMongoConnected();
-    const mongoNotifs = await NotificationModel.find({ user_id: userId }).sort({ created_at: -1 }).limit(50).lean().catch(() => []);
-    if (mongoNotifs && mongoNotifs.length > 0) {
-      return res.json({ success: true, notifications: mongoNotifs });
-    }
-  } catch {}
 
-  const memNotifs = (db.notifications || []).filter((n: any) => n.user_id === userId);
-  return res.json({ success: true, notifications: memNotifs });
+    // Find matched user
+    const matchedUser = await UserModel.findOne({
+      $or: [
+        { id: queryUser },
+        { username: queryUser },
+        { phone: queryUser },
+        { ref_id: queryUser },
+      ],
+    }).lean().catch(() => null);
+
+    const userIds = [queryUser];
+    if (matchedUser) {
+      if (matchedUser.id && !userIds.includes(matchedUser.id)) userIds.push(matchedUser.id);
+      if (matchedUser.username && !userIds.includes(matchedUser.username)) userIds.push(matchedUser.username);
+    }
+
+    const [mongoNotifs, mongoDeps, mongoWths] = await Promise.all([
+      NotificationModel.find({ user_id: { $in: userIds } }).sort({ created_at: -1 }).limit(50).lean().catch(() => []),
+      DepositRequestModel.find({ user_id: { $in: userIds } }).sort({ created_at: -1 }).limit(30).lean().catch(() => []),
+      WithdrawalRequestModel.find({ user_id: { $in: userIds } }).sort({ created_at: -1 }).limit(30).lean().catch(() => []),
+    ]);
+
+    const notifMap = new Map<string, any>();
+
+    // 1. Add database notifications
+    (mongoNotifs || []).forEach((n: any) => {
+      notifMap.set(n.id || n.reference_id || `n_${n.created_at}`, n);
+    });
+
+    // 2. Synthesize deposit notifications
+    const allDeps = (mongoDeps && mongoDeps.length > 0) ? mongoDeps : (db.deposit_requests || []).filter((d: any) => userIds.includes(d.user_id) || userIds.includes(d.username));
+    allDeps.forEach((dep: any) => {
+      const depKey = `notif_dep_${dep.id}`;
+      if (!notifMap.has(depKey) && !notifMap.has(dep.utr_number)) {
+        if (dep.status === 'APPROVED') {
+          notifMap.set(depKey, {
+            id: depKey,
+            user_id: queryUser,
+            type: 'DEPOSIT_APPROVED',
+            title: '🎉 Deposit Approved & Credited!',
+            message: `Your deposit of ₹${Number(dep.amount).toLocaleString('en-IN')} via ${dep.payment_method || 'UPI'} (UTR: ${dep.utr_number}) has been approved and credited to your wallet balance!`,
+            amount: Number(dep.amount),
+            reference_id: dep.utr_number || dep.id,
+            is_read: false,
+            created_at: dep.reviewed_at || dep.created_at || new Date().toISOString(),
+          });
+        } else if (dep.status === 'REJECTED') {
+          notifMap.set(depKey, {
+            id: depKey,
+            user_id: queryUser,
+            type: 'DEPOSIT_REJECTED',
+            title: '❌ Deposit Request Rejected',
+            message: `Your deposit request of ₹${Number(dep.amount).toLocaleString('en-IN')} was rejected. Reason: ${dep.admin_notes || 'UTR could not be verified'}.`,
+            amount: Number(dep.amount),
+            reference_id: dep.utr_number || dep.id,
+            is_read: false,
+            created_at: dep.reviewed_at || dep.created_at || new Date().toISOString(),
+          });
+        }
+      }
+    });
+
+    // 3. Synthesize withdrawal notifications
+    const allWths = (mongoWths && mongoWths.length > 0) ? mongoWths : (db.withdrawal_requests || []).filter((w: any) => userIds.includes(w.user_id) || userIds.includes(w.username));
+    allWths.forEach((wth: any) => {
+      const wthKey = `notif_wth_${wth.id}`;
+      if (!notifMap.has(wthKey)) {
+        if (wth.status === 'SUCCESSFUL') {
+          notifMap.set(wthKey, {
+            id: wthKey,
+            user_id: queryUser,
+            type: 'WITHDRAWAL_SUCCESSFUL',
+            title: '✅ Withdrawal Transferred Successfully!',
+            message: `Your withdrawal of ₹${Number(wth.amount).toLocaleString('en-IN')} to ${wth.upi_id || 'Bank'} has been completed and transferred.`,
+            amount: Number(wth.amount),
+            reference_id: wth.id,
+            is_read: false,
+            created_at: wth.reviewed_at || wth.created_at || new Date().toISOString(),
+          });
+        } else if (wth.status === 'IN_PROGRESS') {
+          notifMap.set(wthKey, {
+            id: wthKey,
+            user_id: queryUser,
+            type: 'WITHDRAWAL_IN_PROGRESS',
+            title: '⏳ Withdrawal In Progress (120m SLA)',
+            message: `Your withdrawal of ₹${Number(wth.amount).toLocaleString('en-IN')} is approved and queued for payout transfer.`,
+            amount: Number(wth.amount),
+            reference_id: wth.id,
+            is_read: false,
+            created_at: wth.approved_at || wth.created_at || new Date().toISOString(),
+          });
+        }
+      }
+    });
+
+    // 4. Welcome notifications
+    const welcomeBonusKey = `notif_welcome_${queryUser}_bonus`;
+    if (!notifMap.has(welcomeBonusKey)) {
+      notifMap.set(welcomeBonusKey, {
+        id: welcomeBonusKey,
+        user_id: queryUser,
+        type: 'DEPOSIT_APPROVED',
+        title: '🎉 Welcome to DerbyBet Turf!',
+        message: 'Welcome aboard! ₹50 complimentary sign-up bonus has been credited to your wallet balance. Start exploring live fixtures & placing selections!',
+        amount: 50,
+        is_read: false,
+        created_at: matchedUser?.created_at || new Date().toISOString(),
+      });
+    }
+
+    const merged = Array.from(notifMap.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+
+    return res.json({ success: true, notifications: merged });
+  } catch (err: any) {
+    console.error('Error in get notifications:', err);
+    const memNotifs = (db.notifications || []).filter((n: any) => n.user_id === queryUser);
+    return res.json({ success: true, notifications: memNotifs });
+  }
 });
 
 app.post('/api/notifications', async (req, res) => {
