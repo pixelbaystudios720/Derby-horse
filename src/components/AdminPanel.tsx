@@ -367,6 +367,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [settlingRace, setSettlingRace] = useState<Race | null>(null);
   const [settlePositions, setSettlePositions] = useState<Record<string, 1 | 2 | 3 | 4 | 0>>({});
   const [settleViewMode, setSettleViewMode] = useState<'DROPDOWN' | 'RUNNERS'>('DROPDOWN');
+  const [settleDeadHeatMode, setSettleDeadHeatMode] = useState<boolean>(false);
 
   // Add Race Form state (Clean Blank by Default)
   const [newRaceName, setNewRaceName] = useState('');
@@ -10507,6 +10508,732 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               >
                 {confirmModal.confirmText || 'Confirm'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OFFICIAL RACE SETTLEMENT & RESULT DECLARATION MODAL */}
+      {settlingRace && (
+        <div
+          id="admin-settlement-modal-overlay"
+          className="fixed inset-0 z-[100] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-fadeIn"
+        >
+          <div
+            id="admin-settlement-modal-card"
+            className="relative w-full max-w-3xl bg-slate-900 border-2 border-amber-500/50 rounded-3xl shadow-2xl shadow-amber-950/40 my-auto overflow-hidden flex flex-col max-h-[92vh]"
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-amber-950/30 to-slate-900 border-b border-amber-500/30 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner">
+                  <Trophy className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base sm:text-lg font-black text-white tracking-tight">
+                      Official Result Declaration & Settlement
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold text-[10px] border border-amber-500/40">
+                      LIVE IN-PLAY
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                    <span className="text-amber-400 font-bold">{settlingRace.venue}</span>
+                    <span>•</span>
+                    <span className="text-white font-bold">{settlingRace.name}</span>
+                    {settlingRace.race_no && (
+                      <>
+                        <span>•</span>
+                        <span className="text-indigo-400 font-bold">Race #{settlingRace.race_no}</span>
+                      </>
+                    )}
+                    <span>•</span>
+                    <span className="text-slate-400">{settlingRace.distance}</span>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                id="close-settle-modal-btn"
+                onClick={() => setSettlingRace(null)}
+                className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+              {/* Notice Banner */}
+              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
+                <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-200/90 leading-relaxed">
+                  <strong className="text-amber-300">Automated Financial Settlement:</strong> Selecting the 1st, 2nd, 3rd, and 4th place winners will immediately credit winning bettor balances in real time, record ledger statements, and advance the fixture to Finished Races.
+                </div>
+              </div>
+
+              {/* Mode & Tools Toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-2xl bg-slate-950/80 border border-slate-800">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSettleViewMode('DROPDOWN')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                      settleViewMode === 'DROPDOWN'
+                        ? 'bg-amber-500 text-slate-950 shadow-md'
+                        : 'bg-slate-900 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Trophy className="w-3.5 h-3.5" />
+                    <span>Podium Dropdowns</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSettleViewMode('RUNNERS')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                      settleViewMode === 'RUNNERS'
+                        ? 'bg-amber-500 text-slate-950 shadow-md'
+                        : 'bg-slate-900 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Runners Grid</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 cursor-pointer hover:border-slate-700">
+                    <input
+                      type="checkbox"
+                      id="dead-heat-toggle"
+                      checked={settleDeadHeatMode}
+                      onChange={(e) => setSettleDeadHeatMode(e.target.checked)}
+                      className="rounded border-slate-700 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                    />
+                    <span className="font-bold flex items-center gap-1">
+                      <span>🔥 Dead Heat Mode</span>
+                      <span className="text-[10px] text-amber-400 font-normal">(Tied Placings)</span>
+                    </span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const initial: Record<string, 1 | 2 | 3 | 4 | 0> = {};
+                      settlingRace.horses.forEach((h, idx) => {
+                        if (idx === 0) initial[h.id] = 1;
+                        else if (idx === 1) initial[h.id] = 2;
+                        else if (idx === 2) initial[h.id] = 3;
+                        else if (idx === 3) initial[h.id] = 4;
+                        else initial[h.id] = 0;
+                      });
+                      setSettlePositions(initial);
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-[11px] font-bold border border-slate-800 transition cursor-pointer"
+                  >
+                    Top 4 Default
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const initial: Record<string, 1 | 2 | 3 | 4 | 0> = {};
+                      settlingRace.horses.forEach((h) => {
+                        initial[h.id] = 0;
+                      });
+                      setSettlePositions(initial);
+                    }}
+                    className="px-2.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white text-[11px] font-bold border border-slate-800 transition cursor-pointer"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+
+              {/* VIEW MODE 1: PODIUM DROPDOWNS */}
+              {settleViewMode === 'DROPDOWN' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {/* 1st Place (WINNER) */}
+                  <div className="p-3.5 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 space-y-2.5 shadow-md">
+                    <div className="flex items-center justify-between">
+                      <span className="text-amber-400 font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                        <Trophy className="w-4 h-4" />
+                        <span>🥇 1st Place (Winner)</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
+                        WIN & PLACE
+                      </span>
+                    </div>
+
+                    {!settleDeadHeatMode ? (
+                      <select
+                        id="settle-select-p1"
+                        value={Object.keys(settlePositions).find((id) => settlePositions[id] === 1) || ''}
+                        onChange={(e) => {
+                          const horseId = e.target.value;
+                          setSettlePositions((prev) => {
+                            const next = { ...prev };
+                            Object.keys(next).forEach((id) => {
+                              if (next[id] === 1) next[id] = 0;
+                            });
+                            if (horseId) next[horseId] = 1;
+                            return next;
+                          });
+                        }}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-amber-500/50 text-white font-bold text-xs focus:ring-2 focus:ring-amber-400 outline-hidden"
+                      >
+                        <option value="">-- Select 1st Place Winner --</option>
+                        {settlingRace.horses.map((h) => (
+                          <option key={h.id} value={h.id}>
+                            #{h.serial_no || h.horse_no} {h.name} (J: {h.jockey} • W: {h.win_odds.toFixed(2)}x)
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                        {settlingRace.horses.map((h) => {
+                          const isP1 = settlePositions[h.id] === 1;
+                          return (
+                            <label
+                              key={h.id}
+                              className={`flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer border transition ${
+                                isP1
+                                  ? 'bg-amber-500/20 border-amber-400 text-white font-bold'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isP1}
+                                  onChange={(e) => {
+                                    setSettlePositions((prev) => ({
+                                      ...prev,
+                                      [h.id]: e.target.checked ? 1 : 0,
+                                    }));
+                                  }}
+                                  className="rounded border-slate-700 text-amber-500 focus:ring-amber-500"
+                                />
+                                <span>#{h.serial_no || h.horse_no} {h.name}</span>
+                              </div>
+                              <span className="font-mono text-amber-400 text-[11px]">{h.win_odds.toFixed(2)}x</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2nd Place */}
+                  <div className="p-3.5 rounded-2xl bg-blue-500/10 border-2 border-blue-500/30 space-y-2.5 shadow-md">
+                    <div className="flex items-center justify-between">
+                      <span className="text-blue-300 font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                        <Trophy className="w-4 h-4" />
+                        <span>🥈 2nd Place (Runner-Up)</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] font-bold">
+                        PLACE
+                      </span>
+                    </div>
+
+                    {!settleDeadHeatMode ? (
+                      <select
+                        id="settle-select-p2"
+                        value={Object.keys(settlePositions).find((id) => settlePositions[id] === 2) || ''}
+                        onChange={(e) => {
+                          const horseId = e.target.value;
+                          setSettlePositions((prev) => {
+                            const next = { ...prev };
+                            Object.keys(next).forEach((id) => {
+                              if (next[id] === 2) next[id] = 0;
+                            });
+                            if (horseId) next[horseId] = 2;
+                            return next;
+                          });
+                        }}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-blue-500/40 text-white font-bold text-xs focus:ring-2 focus:ring-blue-400 outline-hidden"
+                      >
+                        <option value="">-- Select 2nd Place --</option>
+                        {settlingRace.horses.map((h) => (
+                          <option key={h.id} value={h.id}>
+                            #{h.serial_no || h.horse_no} {h.name} (J: {h.jockey} • P: {h.place_odds.toFixed(2)}x)
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                        {settlingRace.horses.map((h) => {
+                          const isP2 = settlePositions[h.id] === 2;
+                          return (
+                            <label
+                              key={h.id}
+                              className={`flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer border transition ${
+                                isP2
+                                  ? 'bg-blue-500/20 border-blue-400 text-white font-bold'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isP2}
+                                  onChange={(e) => {
+                                    setSettlePositions((prev) => ({
+                                      ...prev,
+                                      [h.id]: e.target.checked ? 2 : 0,
+                                    }));
+                                  }}
+                                  className="rounded border-slate-700 text-blue-500 focus:ring-blue-500"
+                                />
+                                <span>#{h.serial_no || h.horse_no} {h.name}</span>
+                              </div>
+                              <span className="font-mono text-blue-300 text-[11px]">{h.place_odds.toFixed(2)}x</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 3rd Place */}
+                  <div className="p-3.5 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500/30 space-y-2.5 shadow-md">
+                    <div className="flex items-center justify-between">
+                      <span className="text-emerald-400 font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                        <Trophy className="w-4 h-4" />
+                        <span>🥉 3rd Place</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">
+                        PLACE
+                      </span>
+                    </div>
+
+                    {!settleDeadHeatMode ? (
+                      <select
+                        id="settle-select-p3"
+                        value={Object.keys(settlePositions).find((id) => settlePositions[id] === 3) || ''}
+                        onChange={(e) => {
+                          const horseId = e.target.value;
+                          setSettlePositions((prev) => {
+                            const next = { ...prev };
+                            Object.keys(next).forEach((id) => {
+                              if (next[id] === 3) next[id] = 0;
+                            });
+                            if (horseId) next[horseId] = 3;
+                            return next;
+                          });
+                        }}
+                        className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-emerald-500/40 text-white font-bold text-xs focus:ring-2 focus:ring-emerald-400 outline-hidden"
+                      >
+                        <option value="">-- Select 3rd Place --</option>
+                        {settlingRace.horses.map((h) => (
+                          <option key={h.id} value={h.id}>
+                            #{h.serial_no || h.horse_no} {h.name} (J: {h.jockey} • P: {h.place_odds.toFixed(2)}x)
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                        {settlingRace.horses.map((h) => {
+                          const isP3 = settlePositions[h.id] === 3;
+                          return (
+                            <label
+                              key={h.id}
+                              className={`flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer border transition ${
+                                isP3
+                                  ? 'bg-emerald-500/20 border-emerald-400 text-white font-bold'
+                                  : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isP3}
+                                  onChange={(e) => {
+                                    setSettlePositions((prev) => ({
+                                      ...prev,
+                                      [h.id]: e.target.checked ? 3 : 0,
+                                    }));
+                                  }}
+                                  className="rounded border-slate-700 text-emerald-500 focus:ring-emerald-500"
+                                />
+                                <span>#{h.serial_no || h.horse_no} {h.name}</span>
+                              </div>
+                              <span className="font-mono text-emerald-400 text-[11px]">{h.place_odds.toFixed(2)}x</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 4th Place */}
+                  <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/30 space-y-2.5 shadow-md">
+                    <div className="flex items-center justify-between">
+                      <span className="text-purple-300 font-black text-xs uppercase tracking-wider flex items-center gap-1.5">
+                        <Flag className="w-4 h-4" />
+                        <span>4th Place (Official Result)</span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-bold">
+                        OFFICIAL VERDICT
+                      </span>
+                    </div>
+
+                    <select
+                      id="settle-select-p4"
+                      value={Object.keys(settlePositions).find((id) => settlePositions[id] === 4) || ''}
+                      onChange={(e) => {
+                        const horseId = e.target.value;
+                        setSettlePositions((prev) => {
+                          const next = { ...prev };
+                          Object.keys(next).forEach((id) => {
+                            if (next[id] === 4) next[id] = 0;
+                          });
+                          if (horseId) next[horseId] = 4;
+                          return next;
+                        });
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-purple-500/40 text-white font-bold text-xs focus:ring-2 focus:ring-purple-400 outline-hidden"
+                    >
+                      <option value="">-- Select 4th Place (Optional) --</option>
+                      {settlingRace.horses.map((h) => (
+                        <option key={h.id} value={h.id}>
+                          #{h.serial_no || h.horse_no} {h.name} (J: {h.jockey})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW MODE 2: VISUAL RUNNERS GRID */}
+              {settleViewMode === 'RUNNERS' && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 gap-2">
+                    {settlingRace.horses.map((horse) => {
+                      const pos = settlePositions[horse.id] || 0;
+                      return (
+                        <div
+                          key={horse.id}
+                          className={`p-3 rounded-2xl border transition flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                            pos === 1
+                              ? 'bg-amber-500/15 border-amber-400 shadow-md ring-1 ring-amber-400/30'
+                              : pos === 2
+                              ? 'bg-blue-500/15 border-blue-400 shadow-md'
+                              : pos === 3
+                              ? 'bg-emerald-500/15 border-emerald-400 shadow-md'
+                              : pos === 4
+                              ? 'bg-purple-500/15 border-purple-400'
+                              : 'bg-slate-950/70 border-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={`w-7 h-7 rounded-xl flex items-center justify-center font-black text-xs ${
+                                pos === 1
+                                  ? 'bg-amber-400 text-slate-950'
+                                  : pos === 2
+                                  ? 'bg-blue-400 text-slate-950'
+                                  : pos === 3
+                                  ? 'bg-emerald-400 text-slate-950'
+                                  : pos === 4
+                                  ? 'bg-purple-400 text-slate-950'
+                                  : 'bg-slate-800 text-slate-300'
+                              }`}
+                            >
+                              {horse.serial_no || horse.horse_no}
+                            </span>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <strong className="text-white text-xs">{horse.name}</strong>
+                                <span className="text-[10px] text-slate-400">J: {horse.jockey}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2 mt-0.5">
+                                <span className="text-amber-400">Win: {horse.win_odds.toFixed(2)}x</span>
+                                <span>•</span>
+                                <span className="text-emerald-400">Place: {horse.place_odds.toFixed(2)}x</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSettlePositions((prev) => {
+                                  const next = { ...prev };
+                                  if (!settleDeadHeatMode) {
+                                    Object.keys(next).forEach((id) => {
+                                      if (next[id] === 1) next[id] = 0;
+                                    });
+                                  }
+                                  next[horse.id] = pos === 1 ? 0 : 1;
+                                  return next;
+                                });
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1 ${
+                                pos === 1
+                                  ? 'bg-amber-400 text-slate-950 shadow-md ring-2 ring-amber-300'
+                                  : 'bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30'
+                              }`}
+                            >
+                              🥇 1st (Win)
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSettlePositions((prev) => {
+                                  const next = { ...prev };
+                                  if (!settleDeadHeatMode) {
+                                    Object.keys(next).forEach((id) => {
+                                      if (next[id] === 2) next[id] = 0;
+                                    });
+                                  }
+                                  next[horse.id] = pos === 2 ? 0 : 2;
+                                  return next;
+                                });
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1 ${
+                                pos === 2
+                                  ? 'bg-blue-400 text-slate-950 shadow-md ring-2 ring-blue-300'
+                                  : 'bg-slate-900 hover:bg-slate-800 text-blue-300 border border-blue-500/30'
+                              }`}
+                            >
+                              🥈 2nd
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSettlePositions((prev) => {
+                                  const next = { ...prev };
+                                  if (!settleDeadHeatMode) {
+                                    Object.keys(next).forEach((id) => {
+                                      if (next[id] === 3) next[id] = 0;
+                                    });
+                                  }
+                                  next[horse.id] = pos === 3 ? 0 : 3;
+                                  return next;
+                                });
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1 ${
+                                pos === 3
+                                  ? 'bg-emerald-400 text-slate-950 shadow-md ring-2 ring-emerald-300'
+                                  : 'bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30'
+                              }`}
+                            >
+                              🥉 3rd
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSettlePositions((prev) => {
+                                  const next = { ...prev };
+                                  if (!settleDeadHeatMode) {
+                                    Object.keys(next).forEach((id) => {
+                                      if (next[id] === 4) next[id] = 0;
+                                    });
+                                  }
+                                  next[horse.id] = pos === 4 ? 0 : 4;
+                                  return next;
+                                });
+                              }}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1 ${
+                                pos === 4
+                                  ? 'bg-purple-400 text-slate-950 shadow-md ring-2 ring-purple-300'
+                                  : 'bg-slate-900 hover:bg-slate-800 text-purple-300 border border-purple-500/30'
+                              }`}
+                            >
+                              4th
+                            </button>
+
+                            {pos !== 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSettlePositions((prev) => ({
+                                    ...prev,
+                                    [horse.id]: 0,
+                                  }));
+                                }}
+                                className="px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-[10px] font-bold"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* LIVE BETS ON THIS RACE & FINANCIAL SIMULATION */}
+              {(() => {
+                const raceBets = bets.filter(
+                  (b) => b.race_id === settlingRace.id || b.race_name?.toLowerCase() === settlingRace.name?.toLowerCase()
+                );
+                const totalStake = raceBets.reduce((sum, b) => sum + Number(b.stake || b.amount || 0), 0);
+                const p1Ids = Object.keys(settlePositions).filter((id) => settlePositions[id] === 1);
+                const p2Ids = Object.keys(settlePositions).filter((id) => settlePositions[id] === 2);
+                const p3Ids = Object.keys(settlePositions).filter((id) => settlePositions[id] === 3);
+                const podiumIds = [...p1Ids, ...p2Ids, ...p3Ids];
+
+                let estimatedPayout = 0;
+                let winningBetsCount = 0;
+
+                raceBets.forEach((b) => {
+                  const numStake = Number(b.stake || b.amount || 0);
+                  const numOdds = Number(b.odds || 1);
+                  if (b.bet_type === 'WIN' && p1Ids.includes(b.horse_id)) {
+                    estimatedPayout += Math.round(numStake * numOdds);
+                    winningBetsCount++;
+                  } else if (b.bet_type === 'PLACE' && podiumIds.includes(b.horse_id)) {
+                    estimatedPayout += Math.round(numStake * numOdds);
+                    winningBetsCount++;
+                  }
+                });
+
+                const adminProfit = totalStake - estimatedPayout;
+
+                return (
+                  <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <Coins className="w-4 h-4 text-amber-400" />
+                        <span className="text-xs font-bold text-white">Live Race Wagers & Settlement Impact</span>
+                        <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
+                          {raceBets.length} Bets Placed
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-xs font-mono">
+                        <div>
+                          <span className="text-slate-400 text-[10px] block">Turnover Pool</span>
+                          <strong className="text-emerald-400 font-bold">₹{totalStake.toLocaleString()}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px] block">Est. Payout</span>
+                          <strong className="text-amber-400 font-bold">₹{estimatedPayout.toLocaleString()}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 text-[10px] block">Admin Net</span>
+                          <strong className={`font-bold ${adminProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {adminProfit >= 0 ? `+₹${adminProfit.toLocaleString()}` : `-₹${Math.abs(adminProfit).toLocaleString()}`}
+                          </strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bettors List */}
+                    {raceBets.length > 0 ? (
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                        {raceBets.map((b) => {
+                          const u = users.find((usr) => usr.id === b.user_id);
+                          const isWin =
+                            (b.bet_type === 'WIN' && p1Ids.includes(b.horse_id)) ||
+                            (b.bet_type === 'PLACE' && podiumIds.includes(b.horse_id));
+
+                          return (
+                            <div
+                              key={b.id}
+                              className={`p-2 rounded-xl text-xs flex items-center justify-between border transition ${
+                                isWin
+                                  ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
+                                  : 'bg-slate-900/60 border-slate-800 text-slate-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-black ${
+                                    b.bet_type === 'WIN' ? 'bg-amber-500/20 text-amber-300' : 'bg-blue-500/20 text-blue-300'
+                                  }`}
+                                >
+                                  {b.bet_type}
+                                </span>
+                                <strong className="text-white">#{b.horse_no} {b.horse_name}</strong>
+                                <span className="text-slate-400 text-[11px]">@{b.odds.toFixed(2)}x</span>
+                                <span className="text-slate-500">•</span>
+                                <span className="text-slate-400 text-[11px] truncate max-w-[100px]">
+                                  {u?.username || u?.name || b.username || 'Bettor'}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2 font-mono">
+                                <span className="text-slate-400">₹{b.stake?.toLocaleString() || b.amount?.toLocaleString()}</span>
+                                <span
+                                  className={`px-2 py-0.5 rounded font-black text-[10px] ${
+                                    isWin
+                                      ? 'bg-emerald-500 text-slate-950'
+                                      : 'bg-slate-800 text-slate-400'
+                                  }`}
+                                >
+                                  {isWin ? `WON +₹${Math.round((b.stake || b.amount || 0) * (b.odds || 1)).toLocaleString()}` : 'LOST'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-500 italic py-1 text-center">
+                        No bets placed on this match.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 sm:p-5 bg-slate-950 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+              <div className="text-xs text-slate-400 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  1st: <strong className="text-amber-400">
+                    {settlingRace.horses.filter((h) => settlePositions[h.id] === 1).map((h) => `#${h.serial_no || h.horse_no} ${h.name}`).join(', ') || 'None selected'}
+                  </strong>
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                <button
+                  type="button"
+                  id="cancel-settle-modal-btn"
+                  onClick={() => setSettlingRace(null)}
+                  className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer border border-slate-700"
+                >
+                  Cancel / Keep In-Play
+                </button>
+
+                <button
+                  type="button"
+                  id="confirm-execute-settle-btn"
+                  disabled={isLoading || Object.keys(settlePositions).filter((id) => settlePositions[id] === 1).length === 0}
+                  onClick={handleExecuteSettlement}
+                  className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2 ${
+                    Object.keys(settlePositions).filter((id) => settlePositions[id] === 1).length === 0
+                      ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 shadow-amber-950/50 ring-2 ring-amber-400/40'
+                  }`}
+                >
+                  {isLoading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
+                      <span>Settling Payouts...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trophy className="w-4 h-4 text-slate-950" />
+                      <span>🏆 Confirm & Settle Race</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
