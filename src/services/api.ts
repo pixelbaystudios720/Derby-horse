@@ -632,6 +632,16 @@ export const api = {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to open race for betting');
 
+      if (data.race) {
+        this.saveLocalRace(data.race);
+      }
+      if (data.races && Array.isArray(data.races)) {
+        try {
+          localStorage.setItem('derby_races', JSON.stringify(data.races));
+          localStorage.setItem('derby_custom_races', JSON.stringify(data.races));
+        } catch {}
+      }
+
       realtimeOdds.broadcast({
         event: 'RACE_STATUS_CHANGED',
         race_id: raceId,

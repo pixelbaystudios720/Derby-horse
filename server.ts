@@ -1598,9 +1598,19 @@ app.get('/api/races/:id', (req, res) => {
 });
 
 // POST /api/admin/races/:id/open-betting
-// Activates target race as OPEN_FOR_BETTING, keeping other upcoming races active with odds
-app.post('/api/admin/races/:id/open-betting', (req, res) => {
-  const targetRace = db.races.find((r) => r.id === req.params.id);
+// Activates target race as LIVE / OPEN_FOR_BETTING, keeping other upcoming races active with odds
+app.post('/api/admin/races/:id/open-betting', async (req, res) => {
+  let targetRace = db.races.find((r) => r.id === req.params.id);
+  if (!targetRace) {
+    try {
+      await ensureMongoConnected();
+      const mongoRace = await RaceModel.findOne({ id: req.params.id }).lean();
+      if (mongoRace) {
+        targetRace = mongoRace as any;
+        db.races.push(targetRace!);
+      }
+    } catch {}
+  }
   if (!targetRace) return res.status(404).json({ error: 'Race not found' });
 
   // 1. Keep other races as UPCOMING (unless already resulted) and ensure odds are not suspended
@@ -1612,7 +1622,7 @@ app.post('/api/admin/races/:id/open-betting', (req, res) => {
                               (centerId && r.center_id === centerId) || 
                               (r.venue && targetRace.venue && r.venue.toLowerCase() === targetRace.venue.toLowerCase());
     if (r.id !== targetRace.id && isSameDayOrCenter) {
-      if (r.status !== 'RESULTED') {
+      if (r.status !== 'RESULTED' && r.status !== 'DRAFT') {
         r.status = 'UPCOMING';
         r.is_suspended = false;
         r.horses.forEach((h) => {
@@ -1623,13 +1633,22 @@ app.post('/api/admin/races/:id/open-betting', (req, res) => {
   });
 
   // 2. Open target race
-  targetRace.status = 'OPEN_FOR_BETTING';
+  targetRace.status = 'LIVE';
   targetRace.is_suspended = false;
   targetRace.horses.forEach((h) => {
     h.is_suspended = false;
   });
 
   saveDatabase();
+
+  try {
+    await ensureMongoConnected();
+    await Promise.all(
+      db.races.map((r) => RaceModel.findOneAndUpdate({ id: r.id }, r, { upsert: true, new: true }))
+    );
+  } catch (err: any) {
+    console.warn('MongoDB race open-betting sync notice:', err.message);
+  }
 
   return res.json({
     success: true,
@@ -1640,14 +1659,28 @@ app.post('/api/admin/races/:id/open-betting', (req, res) => {
 });
 
 // POST /api/admin/races/:id/publish (1-Click Publish to Live Betting)
-app.post('/api/admin/races/:id/publish', (req, res) => {
-  const race = db.races.find((r) => r.id === req.params.id);
+app.post('/api/admin/races/:id/publish', async (req, res) => {
+  let race = db.races.find((r) => r.id === req.params.id);
+  if (!race) {
+    try {
+      await ensureMongoConnected();
+      const mongoRace = await RaceModel.findOne({ id: req.params.id }).lean();
+      if (mongoRace) {
+        race = mongoRace as any;
+        db.races.push(race!);
+      }
+    } catch {}
+  }
   if (!race) {
     return res.status(404).json({ error: 'Race not found' });
   }
-  race.status = 'OPEN_FOR_BETTING';
+  race.status = 'LIVE';
   race.is_suspended = false;
   saveDatabase();
+  try {
+    await ensureMongoConnected();
+    await RaceModel.findOneAndUpdate({ id: race.id }, race, { upsert: true, new: true });
+  } catch {}
   return res.json({ success: true, message: `Race "${race.name}" published live for user betting!`, race });
 });
 
@@ -2196,7 +2229,9 @@ app.put('/api/admin/races/:id/status', async (req, res) => {
 
   try {
     await ensureMongoConnected();
-    await RaceModel.findOneAndUpdate({ id: race.id }, race, { upsert: true, new: true });
+    await Promise.all(
+      db.races.map((r) => RaceModel.findOneAndUpdate({ id: r.id }, r, { upsert: true, new: true }))
+    );
   } catch (err: any) {
     console.warn('MongoDB race status update notice:', err.message);
   }

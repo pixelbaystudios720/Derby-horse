@@ -1689,14 +1689,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       notify(`🟢 Race #${race.race_no || ''} "${race.name}" is now LIVE IN-PLAY! Other races in this center auto-closed.`, 'success');
 
       // Background sync
-      api.openRaceForBetting(race.id).then(() => {
-        onRefreshData();
-        loadAdminData(true);
-      }).catch((err: any) => {
-        console.error('Failed to open race for betting:', err);
-        notify(err.message || 'Failed to open race for betting on server', 'error');
-      });
+      await api.openRaceForBetting(race.id);
+      await onRefreshData();
     } catch (err: any) {
+      console.error('Failed to open race for betting:', err);
       notify(err.message || 'Failed to open race for betting', 'error');
     }
   };
