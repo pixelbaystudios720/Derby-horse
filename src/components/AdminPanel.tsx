@@ -240,12 +240,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Masters: Level 1 (Centers) & Level 2 (Race Days) state
   const [raceCenters, setRaceCenters] = useState<RaceCenter[]>([]);
   const [raceDays, setRaceDays] = useState<RaceDay[]>([]);
-  const [selectedManageCenterId, setSelectedManageCenterId] = useState<string>('');
+  const [selectedManageCenterId, setSelectedManageCenterId] = useState<string>(() => {
+    try {
+      return localStorage.getItem('derby_admin_selected_center') || 'cntr_mysore';
+    } catch {
+      return 'cntr_mysore';
+    }
+  });
   const [showAddCenterForm, setShowAddCenterForm] = useState<boolean>(false);
   const [newCenterName, setNewCenterName] = useState('');
   const [newCenterCode, setNewCenterCode] = useState('');
   const [newCenterCity, setNewCenterCity] = useState('');
-  const [newDayCenterId, setNewDayCenterId] = useState('');
+  const [newDayCenterId, setNewDayCenterId] = useState<string>(() => {
+    try {
+      return localStorage.getItem('derby_admin_selected_center') || 'cntr_mysore';
+    } catch {
+      return 'cntr_mysore';
+    }
+  });
   const [newDayDate, setNewDayDate] = useState(new Date().toISOString().split('T')[0]);
   const [newDayTitle, setNewDayTitle] = useState('');
 
@@ -359,18 +371,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Add Race Form state (Clean Blank by Default)
   const [newRaceName, setNewRaceName] = useState('');
   const [newRaceNo, setNewRaceNo] = useState<number | string>('1');
-  const [newRaceCenterId, setNewRaceCenterId] = useState('cntr_hyderabad');
+  const [newRaceCenterId, setNewRaceCenterId] = useState<string>(() => {
+    try {
+      return localStorage.getItem('derby_admin_selected_center') || 'cntr_mysore';
+    } catch {
+      return 'cntr_mysore';
+    }
+  });
   const [newRaceDayId, setNewRaceDayId] = useState('');
-  const [newVenue, setNewVenue] = useState('Hyderabad Race Club');
+  const [newVenue, setNewVenue] = useState('Mysore Turf Club');
   const [newTime, setNewTime] = useState('');
   const [newDistance, setNewDistance] = useState('');
-  const [newGoing, setNewGoing] = useState('');
+  const [newGoing, setNewGoing] = useState('Good');
   const [newClassGrade, setNewClassGrade] = useState('Grade 1 • Terms');
   const [newRaceImage, setNewRaceImage] = useState('/images/race_action.jpg');
   const [newRaceStatus, setNewRaceStatus] = useState<RaceStatus>('DRAFT');
   const [newHorses, setNewHorses] = useState<any[]>([
     { serial_no: 1, gate_no: 1, name: '', jockey: '', trainer: '', win_odds: 2.5, place_odds: 1.5, silk_color: '#dc2626' }
   ]);
+
+  const handleSelectCenter = (centerId: string) => {
+    if (!centerId) return;
+    try {
+      localStorage.setItem('derby_admin_selected_center', centerId);
+    } catch {}
+    setSelectedManageCenterId(centerId);
+    setNewDayCenterId(centerId);
+    setNewRaceCenterId(centerId);
+    const center = (raceCenters || []).find((c) => c.id === centerId);
+    if (center) {
+      setNewVenue(`${center.name} Turf Club`);
+    }
+    const matchingDays = (raceDays || []).filter((d) => d.center_id === centerId);
+    if (matchingDays.length > 0) {
+      setNewRaceDayId(matchingDays[0].id);
+    } else {
+      setNewRaceDayId('');
+    }
+  };
 
   // Race Creation Success Modal state (Interactive direct buttons)
   const [createdRaceSuccessModal, setCreatedRaceSuccessModal] = useState<{
@@ -679,11 +717,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         if (Array.isArray(bootstrap.bets)) setAllBets(bootstrap.bets);
         if (Array.isArray(bootstrap.deposits)) setDepositRequests(bootstrap.deposits);
         if (Array.isArray(bootstrap.withdrawals)) setWithdrawalRequests(bootstrap.withdrawals);
-        if (Array.isArray(bootstrap.race_centers)) {
+        if (Array.isArray(bootstrap.race_centers) && bootstrap.race_centers.length > 0) {
           setRaceCenters(bootstrap.race_centers);
-          if (!newDayCenterId && bootstrap.race_centers.length > 0) {
-            setNewDayCenterId(bootstrap.race_centers[0].id);
-          }
+          const savedCenterId = (typeof window !== 'undefined' ? localStorage.getItem('derby_admin_selected_center') : null) || bootstrap.race_centers[0].id;
+          const targetCenter = bootstrap.race_centers.find(c => c.id === savedCenterId) || bootstrap.race_centers[0];
+          setSelectedManageCenterId((prev) => prev || targetCenter.id);
+          setNewDayCenterId((prev) => prev || targetCenter.id);
+          setNewRaceCenterId((prev) => prev || targetCenter.id);
+          setNewVenue((prev) => (prev && prev !== 'Hyderabad Race Club' ? prev : `${targetCenter.name} Turf Club`));
         }
         if (Array.isArray(bootstrap.race_days)) setRaceDays(bootstrap.race_days);
         if (bootstrap.system_settings) {
@@ -728,11 +769,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (resWithdrawals.status === 'fulfilled' && Array.isArray(resWithdrawals.value)) {
         setWithdrawalRequests(resWithdrawals.value);
       }
-      if (resCenters.status === 'fulfilled' && Array.isArray(resCenters.value)) {
+      if (resCenters.status === 'fulfilled' && Array.isArray(resCenters.value) && resCenters.value.length > 0) {
         setRaceCenters(resCenters.value);
-        if (!newDayCenterId && resCenters.value.length > 0) {
-          setNewDayCenterId(resCenters.value[0].id);
-        }
+        const savedCenterId = (typeof window !== 'undefined' ? localStorage.getItem('derby_admin_selected_center') : null) || resCenters.value[0].id;
+        const targetCenter = resCenters.value.find(c => c.id === savedCenterId) || resCenters.value[0];
+        setSelectedManageCenterId((prev) => prev || targetCenter.id);
+        setNewDayCenterId((prev) => prev || targetCenter.id);
+        setNewRaceCenterId((prev) => prev || targetCenter.id);
+        setNewVenue((prev) => (prev && prev !== 'Hyderabad Race Club' ? prev : `${targetCenter.name} Turf Club`));
       }
       if (resDays.status === 'fulfilled' && Array.isArray(resDays.value)) {
         setRaceDays(resDays.value);
@@ -1390,7 +1434,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Level 2: Create Race Day Handler
   const handleCreateRaceDay = async (e: React.FormEvent) => {
     e.preventDefault();
-    const targetCenterId = newDayCenterId || (raceCenters && raceCenters.length > 0 ? raceCenters[0].id : 'cntr_mysore');
+    const targetCenterId = newDayCenterId || selectedManageCenterId || (raceCenters && raceCenters.length > 0 ? raceCenters[0].id : 'cntr_mysore');
     const center = (raceCenters || []).find((c) => c.id === targetCenterId) || raceCenters[0];
     if (!center) {
       notify('Please create a Race Center first before creating a Race Day card.', 'warning');
@@ -1414,9 +1458,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           return [res.race_day, ...filtered];
         });
         setNewRaceCenterId(res.race_day.center_id);
+        setSelectedManageCenterId(res.race_day.center_id);
+        setNewDayCenterId(res.race_day.center_id);
         setNewRaceDayId(res.race_day.id);
         setNewVenue(`${center.name} Turf Club`);
         setNewRaceNo(1);
+        try {
+          localStorage.setItem('derby_admin_selected_center', res.race_day.center_id);
+        } catch {}
         setActiveTab('add_race');
       }
 
@@ -2075,18 +2124,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       return;
     }
 
+    const targetCenterId = newRaceCenterId || selectedManageCenterId || (raceCenters && raceCenters.length > 0 ? raceCenters[0].id : 'cntr_mysore');
+    const targetCenter = (raceCenters || []).find((c) => c.id === targetCenterId);
+    const targetVenue = newVenue || (targetCenter ? `${targetCenter.name} Turf Club` : 'Mysore Turf Club');
+    const targetTime = newTime.trim() || '1:45 PM';
+    const targetDistance = newDistance.trim() || '1400m';
+
     const tempRaceId = `race_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const optimisticRace: Race = {
       id: tempRaceId,
       name: newRaceName.trim(),
       race_no: newRaceNo ? Number(newRaceNo) : 1,
-      center_id: newRaceCenterId || 'cntr_hyderabad',
+      center_id: targetCenterId,
       race_day_id: newRaceDayId || undefined,
-      venue: newVenue || 'Hyderabad Race Club',
-      race_time: newTime || '1:55 PM',
+      venue: targetVenue,
+      race_time: targetTime,
       date_str: 'Today',
-      distance: newDistance || '1400m',
-      going: newGoing || undefined,
+      distance: targetDistance,
+      going: newGoing || 'Good',
       class_grade: newClassGrade || 'Grade 1 • Terms',
       status: finalStatus,
       image_url: newRaceImage || 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=600&q=80',
@@ -2110,19 +2165,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     if (finalStatus === 'DRAFT') {
       soundManager.playChip();
-      notify(`💾 Race Card "${newRaceName}" saved to SAVED RACE CARDS (Odds Closed)!`, 'success');
+      notify(`💾 Race Card "${optimisticRace.name}" saved to SAVED RACE CARDS (Odds Closed)!`, 'success');
     } else if (finalStatus === 'LIVE') {
       soundManager.playRaceBugle();
-      notify(`⚡ Race "${newRaceName}" published directly to LIVE RACES with ${validRunners.length} runners!`, 'success');
+      notify(`⚡ Race "${optimisticRace.name}" published directly to LIVE RACES with ${validRunners.length} runners!`, 'success');
       setAdminRaceFilter('live');
     } else {
       soundManager.playBetPlaced();
-      notify(`🚀 Race "${newRaceName}" published for USER VIEW with ${validRunners.length} runners!`, 'success');
+      notify(`🚀 Race "${optimisticRace.name}" published for USER VIEW with ${validRunners.length} runners!`, 'success');
       setAdminRaceFilter('upcoming');
     }
 
     // Background server call
     api.createRace({
+      id: tempRaceId,
       name: optimisticRace.name,
       race_no: optimisticRace.race_no,
       center_id: optimisticRace.center_id,
@@ -2256,10 +2312,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleClearForm = () => {
     const nextNo = (races || []).length + 1;
+    const currentCenterId = selectedManageCenterId || newRaceCenterId || (raceCenters && raceCenters.length > 0 ? raceCenters[0].id : 'cntr_mysore');
+    const currentCenter = (raceCenters || []).find((c) => c.id === currentCenterId) || raceCenters[0];
+    const venueName = currentCenter ? `${currentCenter.name} Turf Club` : 'Mysore Turf Club';
     setNewRaceName('');
     setNewRaceNo(String(nextNo));
-    setNewRaceCenterId(raceCenters[0]?.id || 'cntr_hyderabad');
-    setNewVenue(raceCenters[0]?.name ? `${raceCenters[0].name} Race Club` : 'Hyderabad Race Club');
+    setNewRaceCenterId(currentCenterId);
+    setNewVenue(venueName);
     setNewTime('');
     setNewDistance('');
     setNewGoing('Good');
@@ -4899,7 +4958,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                 {/* Dropdown Center Selector & Current Details */}
                 {(() => {
-                  const currentCenterId = selectedManageCenterId || (raceCenters && raceCenters[0]?.id) || '';
+                  const currentCenterId = selectedManageCenterId || newRaceCenterId || (raceCenters && raceCenters[0]?.id) || 'cntr_mysore';
                   const currentCenter = (raceCenters || []).find(c => c.id === currentCenterId) || raceCenters[0];
                   const centerRaces = currentCenter ? (races || []).filter(r => r.center_id === currentCenter.id || (r.venue && r.venue.toLowerCase().includes(currentCenter.name.toLowerCase()))) : [];
 
@@ -4912,10 +4971,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </label>
                         <select
                           value={currentCenterId}
-                          onChange={(e) => {
-                            setSelectedManageCenterId(e.target.value);
-                            setNewDayCenterId(e.target.value);
-                          }}
+                          onChange={(e) => handleSelectCenter(e.target.value)}
                           className="w-full px-3 py-2.5 bg-slate-950 border-2 border-emerald-500/40 rounded-xl text-white font-bold text-sm focus:border-emerald-400 outline-none transition cursor-pointer"
                         >
                           {(raceCenters || []).map((c) => (
@@ -5002,8 +5058,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <label className="block text-[10px] text-slate-400 mb-0.5">Select Center *</label>
                       <select
                         required
-                        value={newDayCenterId}
-                        onChange={(e) => setNewDayCenterId(e.target.value)}
+                        value={newDayCenterId || selectedManageCenterId || (raceCenters && raceCenters[0]?.id) || 'cntr_mysore'}
+                        onChange={(e) => handleSelectCenter(e.target.value)}
                         className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold text-xs"
                       >
                         {(raceCenters || []).map(c => (
@@ -5095,7 +5151,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              setNewRaceCenterId(day.center_id);
+                              handleSelectCenter(day.center_id);
                               setNewRaceDayId(day.id);
                               if (center) setNewVenue(`${center.name} Turf Club`);
                               setActiveTab('add_race');
@@ -5176,21 +5232,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </label>
               <select
                 id="new-race-center-select"
-                value={newRaceCenterId}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setNewRaceCenterId(val);
-                  const center = raceCenters.find(c => c.id === val);
-                  if (center) {
-                    setNewVenue(`${center.name} Turf Club`);
-                  }
-                  const matchingDays = raceDays.filter(d => d.center_id === val);
-                  if (matchingDays.length > 0) {
-                    setNewRaceDayId(matchingDays[0].id);
-                  } else {
-                    setNewRaceDayId('');
-                  }
-                }}
+                value={newRaceCenterId || selectedManageCenterId || (raceCenters && raceCenters[0]?.id) || 'cntr_mysore'}
+                onChange={(e) => handleSelectCenter(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm font-bold focus:outline-none focus:border-emerald-500"
               >
                 {(raceCenters || []).map(c => (

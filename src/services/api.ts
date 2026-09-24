@@ -1770,7 +1770,7 @@ export const api = {
   },
 
   async createRace(raceData: any): Promise<Race> {
-    const raceId = `race_custom_${Date.now()}`;
+    const raceId = raceData.id || `race_custom_${Date.now()}`;
     const parsedHorses = (raceData.horses || []).map((h: any, index: number) => {
       const sNo = Number(h.serial_no || h.horse_no) || index + 1;
       const gNo = h.gate_no !== undefined && h.gate_no !== '' ? (isNaN(Number(h.gate_no)) ? h.gate_no : Number(h.gate_no)) : (index + 1);
@@ -1795,10 +1795,12 @@ export const api = {
       id: raceId,
       name: String(raceData.name).trim(),
       race_no: raceData.race_no ? Number(raceData.race_no) : undefined,
-      venue: String(raceData.venue || 'Bangalore Turf Club').trim(),
+      center_id: raceData.center_id,
+      race_day_id: raceData.race_day_id,
+      venue: String(raceData.venue || 'Mysore Turf Club').trim(),
       race_time: String(raceData.race_time || '2:00 PM').trim(),
       date_str: String(raceData.date_str || 'Today, 5th Sep').trim(),
-      distance: String(raceData.distance || '1600m').trim(),
+      distance: String(raceData.distance || '1400m').trim(),
       going: raceData.going ? String(raceData.going).trim() : undefined,
       class_grade: String(raceData.class_grade || 'Grade 1 • Terms').trim(),
       status: raceData.status || 'OPEN',
@@ -1813,7 +1815,15 @@ export const api = {
       const res = await fetch(`${API_BASE}/admin/races`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(raceData),
+        body: JSON.stringify({
+          ...raceData,
+          id: raceId,
+          center_id: raceData.center_id,
+          race_day_id: raceData.race_day_id,
+          venue: newRace.venue,
+          race_time: newRace.race_time,
+          distance: newRace.distance,
+        }),
       });
       if (res.ok) {
         const text = await res.text();

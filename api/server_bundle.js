@@ -2069,11 +2069,11 @@ app.delete("/api/banners/:id", (req, res) => {
   return res.json({ success: true });
 });
 app.post("/api/admin/races", async (req, res) => {
-  const { name, race_no, venue, race_time, date_str, distance, going, class_grade, horses } = req.body;
+  const { id: customId, name, race_no, venue, race_time, date_str, distance, going, class_grade, horses, center_id, race_day_id, status, image_url } = req.body;
   if (!name || !race_time) {
     return res.status(400).json({ error: "Race name and race time are required" });
   }
-  const raceId = generateId("race");
+  const raceId = customId || generateId("race");
   const parsedHorses = (horses || []).map((h, index) => {
     const sNo = Number(h.serial_no || h.horse_no) || index + 1;
     const gNo = h.gate_no !== void 0 && h.gate_no !== "" ? isNaN(Number(h.gate_no)) ? h.gate_no : Number(h.gate_no) : index + 1;
@@ -2093,26 +2093,35 @@ app.post("/api/admin/races", async (req, res) => {
       weight: h.weight || "56.0 kg"
     };
   });
+  const matchedCenter = (db.race_centers || []).find((c) => c.id === center_id || venue && venue.toLowerCase().includes(c.name.toLowerCase()));
+  const finalCenterId = center_id || matchedCenter?.id || "cntr_mysore";
+  const defaultVenue = matchedCenter?.name ? `${matchedCenter.name} Turf Club` : "Mysore Turf Club";
+  const finalVenue = String(venue || defaultVenue).trim();
   const newRace = {
     id: raceId,
     name: String(name).trim(),
     race_no: race_no ? Number(race_no) : void 0,
-    center_id: req.body.center_id,
-    race_day_id: req.body.race_day_id,
-    venue: String(venue || "Bangalore Turf Club").trim(),
+    center_id: finalCenterId,
+    race_day_id: race_day_id || void 0,
+    venue: finalVenue,
     race_time: String(race_time).trim(),
-    date_str: String(date_str || "Today, 5th Sep").trim(),
-    distance: String(distance || "1600m").trim(),
+    date_str: String(date_str || "Today").trim(),
+    distance: String(distance || "1400m").trim(),
     going: String(going || "Good").trim(),
     class_grade: String(class_grade || "Grade 1 \u2022 Terms").trim(),
-    status: req.body.status || "DRAFT",
-    image_url: req.body.image_url || "/images/race_action.jpg",
+    status: status || "DRAFT",
+    image_url: image_url || "/images/race_action.jpg",
     winner_horse_id: null,
     place_horses_ids: [],
     horses: parsedHorses,
     settled_at: null
   };
-  db.races.unshift(newRace);
+  const existingIdx = db.races.findIndex((r) => r.id === raceId);
+  if (existingIdx >= 0) {
+    db.races[existingIdx] = newRace;
+  } else {
+    db.races.unshift(newRace);
+  }
   saveDatabase();
   try {
     await ensureMongoConnected();
@@ -2123,7 +2132,18 @@ app.post("/api/admin/races", async (req, res) => {
   return res.json({ success: true, race: newRace });
 });
 app.put("/api/admin/races/:id", async (req, res) => {
-  const race = db.races.find((r) => r.id === req.params.id);
+  let race = db.races.find((r) => r.id === req.params.id);
+  if (!race) {
+    try {
+      await ensureMongoConnected();
+      const mongoRace = await RaceModel.findOne({ id: req.params.id }).lean();
+      if (mongoRace) {
+        race = mongoRace;
+        db.races.push(race);
+      }
+    } catch {
+    }
+  }
   if (!race) return res.status(404).json({ error: "Race not found" });
   const { name, race_no, center_id, race_day_id, venue, race_time, date_str, distance, going, class_grade, horses, status, image_url } = req.body;
   if (name !== void 0) race.name = String(name).trim();
