@@ -72,6 +72,28 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
     setTimeout(() => setCopiedUtr(null), 2000);
   };
 
+  const formatSafeDate = (dateVal?: string | Date, options?: Intl.DateTimeFormatOptions) => {
+    try {
+      if (!dateVal) return 'Recent';
+      const d = new Date(dateVal);
+      if (isNaN(d.getTime())) return 'Recent';
+      return d.toLocaleString('en-IN', options || { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return 'Recent';
+    }
+  };
+
+  const formatSafeMemberSince = (dateVal?: string | Date) => {
+    try {
+      if (!dateVal) return '2026';
+      const d = new Date(dateVal);
+      if (isNaN(d.getTime())) return '2026';
+      return d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+    } catch {
+      return '2026';
+    }
+  };
+
   if (!user) {
     return (
       <div className="bg-[#091510] rounded-2xl border border-emerald-900/50 p-6 sm:p-8 text-center space-y-4 max-w-md mx-auto my-6 shadow-2xl">
@@ -133,8 +155,8 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
             {/* Avatar with glowing gold border */}
             <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden border-2 border-[#e5b869] shadow-[0_0_15px_rgba(229,184,105,0.3)] shrink-0 bg-[#040805]">
               <img
-                src={user.profile_photo || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username}`}
-                alt={user.username}
+                src={user.profile_photo || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || 'punter'}`}
+                alt={user.username || 'User'}
                 className="w-full h-full object-cover"
               />
             </div>
@@ -142,7 +164,7 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
             <div className="space-y-0.5 min-w-0 flex-1">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h1 className="text-lg sm:text-2xl font-black text-white tracking-tight truncate">
-                  @{user.username}
+                  @{user.username || 'user'}
                 </h1>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9px] sm:text-[10px] font-black uppercase tracking-wider shrink-0">
                   ✓ Verified Punter
@@ -162,7 +184,7 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
               </p>
 
               <p className="text-[10px] sm:text-[11px] text-slate-500 truncate">
-                User ID: <span className="font-mono text-slate-300 font-semibold">{refId}</span> • Since: {new Date(user.created_at).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                User ID: <span className="font-mono text-slate-300 font-semibold">{refId}</span> • Since: {formatSafeMemberSince(user.created_at)}
               </p>
             </div>
           </div>
@@ -416,11 +438,11 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
           <div className="grid grid-cols-2 gap-2 bg-[#040805] p-2 px-3 rounded-xl border border-emerald-900/50 self-stretch sm:self-auto text-center sm:text-left">
             <div>
               <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase">Liquid Balance</p>
-              <p className="text-xs sm:text-sm font-black text-emerald-400 font-mono">₹{user.balance.toLocaleString('en-IN')}</p>
+              <p className="text-xs sm:text-sm font-black text-emerald-400 font-mono">₹{(user.balance || 0).toLocaleString('en-IN')}</p>
             </div>
             <div className="border-l border-emerald-900/50 pl-2">
               <p className="text-[8px] sm:text-[9px] font-bold text-slate-400 uppercase">Exposure</p>
-              <p className="text-xs sm:text-sm font-black text-rose-400 font-mono">₹{user.exposure.toLocaleString('en-IN')}</p>
+              <p className="text-xs sm:text-sm font-black text-rose-400 font-mono">₹{(user.exposure || 0).toLocaleString('en-IN')}</p>
             </div>
           </div>
         </div>
@@ -558,10 +580,10 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
                           <div className="min-w-0 flex-1 space-y-0.5">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-mono font-black text-white text-base">
-                                ₹{dep.amount.toLocaleString('en-IN')}
+                                ₹{(dep.amount || 0).toLocaleString('en-IN')}
                               </span>
                               <span className="text-xs text-slate-400 font-semibold">
-                                via {dep.payment_method}
+                                via {dep.payment_method || 'UPI'}
                               </span>
 
                               {/* Status Badge */}
@@ -589,28 +611,25 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
                             <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
                               <span className="font-mono bg-[#030604] px-2 py-0.5 rounded border border-emerald-950 text-slate-300 font-bold flex items-center gap-1">
                                 <span>UTR:</span>
-                                <span className="text-[#e5b869]">{dep.utr_number}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopy(dep.utr_number, dep.id)}
-                                  className="ml-1 text-slate-400 hover:text-white cursor-pointer"
-                                  title="Copy UTR"
-                                >
-                                  {copiedUtr === dep.id ? (
-                                    <Check className="w-3 h-3 text-emerald-400" />
-                                  ) : (
-                                    <Copy className="w-3 h-3" />
-                                  )}
-                                </button>
+                                <span className="text-[#e5b869]">{dep.utr_number || 'N/A'}</span>
+                                {dep.utr_number && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(dep.utr_number, dep.id)}
+                                    className="ml-1 text-slate-400 hover:text-white cursor-pointer"
+                                    title="Copy UTR"
+                                  >
+                                    {copiedUtr === dep.id ? (
+                                      <Check className="w-3 h-3 text-emerald-400" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                  </button>
+                                )}
                               </span>
 
                               <span className="text-[11px] text-slate-500">
-                                {new Date(dep.created_at).toLocaleString('en-IN', {
-                                  day: 'numeric',
-                                  month: 'short',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {formatSafeDate(dep.created_at)}
                               </span>
                             </div>
 
@@ -712,7 +731,7 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
                           <div className="min-w-0 flex-1 space-y-0.5">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-mono font-black text-white text-base">
-                                ₹{wth.amount.toLocaleString('en-IN')}
+                                ₹{(wth.amount || 0).toLocaleString('en-IN')}
                               </span>
 
                               {/* Status Badge */}
@@ -749,12 +768,7 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
                               </span>
 
                               <span className="text-[11px] text-slate-500">
-                                {new Date(wth.created_at).toLocaleString('en-IN', {
-                                  day: 'numeric',
-                                  month: 'short',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {formatSafeDate(wth.created_at)}
                               </span>
                             </div>
 
@@ -792,43 +806,41 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
                 </div>
               ) : (
                 <div className="divide-y divide-emerald-950/60 overflow-hidden">
-                  {userTransactions.map((tx) => (
-                    <div key={tx.id} className="py-2.5 sm:py-3 flex items-center justify-between gap-2.5 text-xs min-w-0">
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold shrink-0 ${
-                          tx.type === 'DEPOSIT' || tx.type === 'WIN'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                        }`}>
-                          {tx.type === 'DEPOSIT' || tx.type === 'WIN' ? (
-                            <ArrowDownLeft className="w-3.5 h-3.5" />
-                          ) : (
-                            <ArrowUpRight className="w-3.5 h-3.5" />
-                          )}
+                  {userTransactions.map((tx) => {
+                    const txAmt = Number(tx.amount || 0);
+                    return (
+                      <div key={tx.id} className="py-2.5 sm:py-3 flex items-center justify-between gap-2.5 text-xs min-w-0">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold shrink-0 ${
+                            tx.type === 'DEPOSIT' || tx.type === 'WIN'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                          }`}>
+                            {tx.type === 'DEPOSIT' || tx.type === 'WIN' ? (
+                              <ArrowDownLeft className="w-3.5 h-3.5" />
+                            ) : (
+                              <ArrowUpRight className="w-3.5 h-3.5" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-white text-xs sm:text-sm truncate">{tx.description || 'Transaction'}</p>
+                            <p className="text-[10px] text-slate-500">
+                              {formatSafeDate(tx.created_at)}
+                            </p>
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-white text-xs sm:text-sm truncate">{tx.description}</p>
-                          <p className="text-[10px] text-slate-500">
-                            {new Date(tx.created_at).toLocaleString('en-IN', {
-                              day: 'numeric',
-                              month: 'short',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </p>
-                        </div>
-                      </div>
 
-                      <div className="text-right font-mono shrink-0">
-                        <p className={`font-black text-xs sm:text-sm ${
-                          tx.amount > 0 ? 'text-emerald-400' : 'text-slate-200'
-                        }`}>
-                          {tx.amount > 0 ? `+₹${tx.amount.toLocaleString('en-IN')}` : `-₹${Math.abs(tx.amount).toLocaleString('en-IN')}`}
-                        </p>
-                        <p className="text-[9px] text-slate-500">Bal: ₹{(tx.balance_after || 0).toLocaleString('en-IN')}</p>
+                        <div className="text-right font-mono shrink-0">
+                          <p className={`font-black text-xs sm:text-sm ${
+                            txAmt > 0 ? 'text-emerald-400' : 'text-slate-200'
+                          }`}>
+                            {txAmt > 0 ? `+₹${txAmt.toLocaleString('en-IN')}` : `-₹${Math.abs(txAmt).toLocaleString('en-IN')}`}
+                          </p>
+                          <p className="text-[9px] text-slate-500">Bal: ₹{(tx.balance_after || 0).toLocaleString('en-IN')}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

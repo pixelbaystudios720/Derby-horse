@@ -2717,6 +2717,38 @@ app.post("/api/admin/races/:id/settle", async (req, res) => {
     totalPayout
   });
 });
+function enrichUsersWithFinancials(rawUsers, depositsList, withdrawalsList, betsList, txsList) {
+  const seenRefs = /* @__PURE__ */ new Set();
+  return rawUsers.map((u, idx) => {
+    const userObj = { ...u };
+    delete userObj.password_hash;
+    if (!userObj.ref_id || seenRefs.has(userObj.ref_id)) {
+      userObj.ref_id = `TURF-${10001 + idx}`;
+      UserModel.updateOne({ id: userObj.id }, { $set: { ref_id: userObj.ref_id } }).catch(() => {
+      });
+    }
+    seenRefs.add(userObj.ref_id);
+    const userDeps = depositsList.filter((d) => (d.user_id === userObj.id || d.username === userObj.username) && d.status === "APPROVED");
+    const directDepTxs = txsList.filter((t) => (t.user_id === userObj.id || t.username === userObj.username) && t.type === "DEPOSIT");
+    const depFromRequests = userDeps.reduce((s, d) => s + (d.amount || 0), 0);
+    const depFromTxs = directDepTxs.reduce((s, t) => s + (t.amount || 0), 0);
+    const totalDeposited = depFromRequests > 0 ? depFromRequests : depFromTxs;
+    const userWths = withdrawalsList.filter((w) => (w.user_id === userObj.id || w.username === userObj.username) && (w.status === "SUCCESSFUL" || w.status === "IN_PROGRESS"));
+    const directWthTxs = txsList.filter((t) => (t.user_id === userObj.id || t.username === userObj.username) && t.type === "WITHDRAW");
+    const wthFromRequests = userWths.reduce((s, w) => s + (w.amount || 0), 0);
+    const wthFromTxs = directWthTxs.reduce((s, t) => s + (t.amount || 0), 0);
+    const totalWithdrawn = wthFromRequests > 0 ? wthFromRequests : wthFromTxs;
+    const userBets = betsList.filter((b) => b.user_id === userObj.id || b.username === userObj.username);
+    const totalWagered = userBets.reduce((s, b) => s + (b.stake || b.amount || 0), 0);
+    const totalWon = userBets.filter((b) => b.status === "WON").reduce((s, b) => s + (b.payout || b.payout_amount || 0), 0);
+    userObj.total_deposited = totalDeposited;
+    userObj.total_withdrawn = totalWithdrawn;
+    userObj.total_wagered = totalWagered;
+    userObj.total_won = totalWon;
+    userObj.net_pnl = totalWagered - totalWon;
+    return userObj;
+  });
+}
 app.get("/api/admin/users", async (req, res) => {
   try {
     await ensureMongoConnected();
@@ -2739,36 +2771,7 @@ app.get("/api/admin/users", async (req, res) => {
     const betsList = mongoBets && mongoBets.length > 0 ? mongoBets : db.bets || [];
     const txsList = mongoTxs && mongoTxs.length > 0 ? mongoTxs : db.transactions || [];
     const rawUsers = mongoUsers && mongoUsers.length > 0 ? mongoUsers : db.users.filter((u) => u.role !== "admin" && u.id !== "usr_admin" && u.id !== "usr_admin_master" && u.username !== "admin");
-    const seenRefs = /* @__PURE__ */ new Set();
-    const usersWithFin = rawUsers.map((u, idx) => {
-      const userObj = { ...u };
-      delete userObj.password_hash;
-      if (!userObj.ref_id || seenRefs.has(userObj.ref_id)) {
-        userObj.ref_id = `TURF-${10001 + idx}`;
-        UserModel.updateOne({ id: userObj.id }, { $set: { ref_id: userObj.ref_id } }).catch(() => {
-        });
-      }
-      seenRefs.add(userObj.ref_id);
-      const userDeps = depositsList.filter((d) => (d.user_id === userObj.id || d.username === userObj.username) && d.status === "APPROVED");
-      const directDepTxs = txsList.filter((t) => (t.user_id === userObj.id || t.username === userObj.username) && t.type === "DEPOSIT");
-      const depFromRequests = userDeps.reduce((s, d) => s + (d.amount || 0), 0);
-      const depFromTxs = directDepTxs.reduce((s, t) => s + (t.amount || 0), 0);
-      const totalDeposited = depFromRequests > 0 ? depFromRequests : depFromTxs;
-      const userWths = withdrawalsList.filter((w) => (w.user_id === userObj.id || w.username === userObj.username) && (w.status === "SUCCESSFUL" || w.status === "IN_PROGRESS"));
-      const directWthTxs = txsList.filter((t) => (t.user_id === userObj.id || t.username === userObj.username) && t.type === "WITHDRAW");
-      const wthFromRequests = userWths.reduce((s, w) => s + (w.amount || 0), 0);
-      const wthFromTxs = directWthTxs.reduce((s, t) => s + (t.amount || 0), 0);
-      const totalWithdrawn = wthFromRequests > 0 ? wthFromRequests : wthFromTxs;
-      const userBets = betsList.filter((b) => b.user_id === userObj.id || b.username === userObj.username);
-      const totalWagered = userBets.reduce((s, b) => s + (b.stake || b.amount || 0), 0);
-      const totalWon = userBets.filter((b) => b.status === "WON").reduce((s, b) => s + (b.payout || b.payout_amount || 0), 0);
-      userObj.total_deposited = totalDeposited;
-      userObj.total_withdrawn = totalWithdrawn;
-      userObj.total_wagered = totalWagered;
-      userObj.total_won = totalWon;
-      userObj.net_pnl = totalWagered - totalWon;
-      return userObj;
-    });
+    const usersWithFin = enrichUsersWithFinancials(rawUsers, depositsList, withdrawalsList, betsList, txsList);
     db.users = [
       ...db.users.filter((u) => u.role === "admin" || u.username === "admin"),
       ...usersWithFin
@@ -2776,15 +2779,8 @@ app.get("/api/admin/users", async (req, res) => {
     return res.json({ success: true, users: usersWithFin });
   } catch (err) {
     console.error("Admin users fetch error:", err);
-    const seenRefs = /* @__PURE__ */ new Set();
-    const usersList = db.users.filter((u) => u.role !== "admin" && u.id !== "usr_admin" && u.id !== "usr_admin_master" && u.username !== "admin").map(({ password_hash, ...u }, idx) => {
-      const userObj = { ...u };
-      if (!userObj.ref_id || seenRefs.has(userObj.ref_id)) {
-        userObj.ref_id = `TURF-${10001 + idx}`;
-      }
-      seenRefs.add(userObj.ref_id);
-      return userObj;
-    });
+    const rawUsers = db.users.filter((u) => u.role !== "admin" && u.id !== "usr_admin" && u.id !== "usr_admin_master" && u.username !== "admin");
+    const usersList = enrichUsersWithFinancials(rawUsers, db.deposit_requests || [], db.withdrawal_requests || [], db.bets || [], db.transactions || []);
     return res.json({ success: true, users: usersList });
   }
 });
@@ -2831,7 +2827,7 @@ app.get("/api/admin/overview", async (req, res) => {
 app.get("/api/admin/bootstrap", async (req, res) => {
   try {
     await ensureMongoConnected();
-    const [mongoUsers, mongoBets, mongoDeposits, mongoWithdrawals, mongoCenters, mongoDays] = await Promise.all([
+    const [mongoUsers, mongoBets, mongoDeposits, mongoWithdrawals, mongoCenters, mongoDays, mongoTxs] = await Promise.all([
       UserModel.find({
         $or: [{ role: { $ne: "admin" } }, { role: { $exists: false } }],
         id: { $nin: ["usr_admin", "usr_admin_master"] },
@@ -2841,20 +2837,15 @@ app.get("/api/admin/bootstrap", async (req, res) => {
       DepositRequestModel.find().sort({ created_at: -1 }).lean().catch(() => []),
       WithdrawalRequestModel.find().sort({ created_at: -1 }).lean().catch(() => []),
       RaceCenterModel.find().sort({ name: 1 }).lean().catch(() => []),
-      RaceDayModel.find().sort({ race_date: -1 }).lean().catch(() => [])
+      RaceDayModel.find().sort({ race_date: -1 }).lean().catch(() => []),
+      TransactionModel.find().lean().catch(() => [])
     ]);
-    const rawUsers = mongoUsers && mongoUsers.length > 0 ? mongoUsers : db.users.filter((u) => u.role !== "admin" && u.username !== "admin");
-    const seenRefs = /* @__PURE__ */ new Set();
-    const usersList = rawUsers.map((u, idx) => {
-      const userObj = { ...u };
-      delete userObj.password_hash;
-      if (!userObj.ref_id || seenRefs.has(userObj.ref_id)) {
-        userObj.ref_id = `TURF-${10001 + idx}`;
-      }
-      seenRefs.add(userObj.ref_id);
-      return userObj;
-    });
+    const depositsList = mongoDeposits && mongoDeposits.length > 0 ? mongoDeposits : db.deposit_requests || [];
+    const withdrawalsList = mongoWithdrawals && mongoWithdrawals.length > 0 ? mongoWithdrawals : db.withdrawal_requests || [];
     const betsList = mongoBets && mongoBets.length > 0 ? mongoBets : db.bets;
+    const txsList = mongoTxs && mongoTxs.length > 0 ? mongoTxs : db.transactions || [];
+    const rawUsers = mongoUsers && mongoUsers.length > 0 ? mongoUsers : db.users.filter((u) => u.role !== "admin" && u.username !== "admin");
+    const usersList = enrichUsersWithFinancials(rawUsers, depositsList, withdrawalsList, betsList, txsList);
     const totalVolume = betsList.reduce((s, b) => s + (b.stake || b.amount || 0), 0);
     const pendingBetsCount = betsList.filter((b) => b.status === "PENDING").length;
     const stats = {
@@ -2869,8 +2860,8 @@ app.get("/api/admin/bootstrap", async (req, res) => {
       stats,
       users: usersList,
       bets: betsList,
-      deposits: mongoDeposits && mongoDeposits.length > 0 ? mongoDeposits : db.deposit_requests || [],
-      withdrawals: mongoWithdrawals && mongoWithdrawals.length > 0 ? mongoWithdrawals : db.withdrawal_requests || [],
+      deposits: depositsList,
+      withdrawals: withdrawalsList,
       race_centers: mongoCenters && mongoCenters.length > 0 ? mongoCenters : db.race_centers || [],
       race_days: mongoDays && mongoDays.length > 0 ? mongoDays : db.race_days || [],
       system_settings: db.system_settings || {}
@@ -2878,6 +2869,7 @@ app.get("/api/admin/bootstrap", async (req, res) => {
   } catch (err) {
     console.error("Admin bootstrap error:", err);
     const realUsers = db.users.filter((u) => u.role !== "admin" && u.username !== "admin");
+    const usersList = enrichUsersWithFinancials(realUsers, db.deposit_requests || [], db.withdrawal_requests || [], db.bets || [], db.transactions || []);
     return res.json({
       success: true,
       stats: {
@@ -2887,7 +2879,7 @@ app.get("/api/admin/bootstrap", async (req, res) => {
         openRaces: db.races.filter((r) => r.status === "OPEN" || r.status === "LIVE" || r.status === "OPEN_FOR_BETTING").length,
         pendingBetsCount: db.bets.filter((b) => b.status === "PENDING").length
       },
-      users: realUsers,
+      users: usersList,
       bets: db.bets,
       deposits: db.deposit_requests || [],
       withdrawals: db.withdrawal_requests || [],
@@ -3356,7 +3348,7 @@ app.post("/api/admin/reset-races-keep-deposits", async (req, res) => {
     await RaceModel.deleteMany({});
     await BetModel.deleteMany({});
     await TransactionModel.deleteMany({
-      type: { $in: ["WIN", "BET", "PAYOUT", "LOST", "REFUND"] }
+      type: { $in: ["WIN", "BET", "REFUND"] }
     });
     try {
       await NotificationModel.deleteMany({

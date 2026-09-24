@@ -2445,6 +2445,10 @@ export const api = {
           bet.dead_heat_divider = betIsDeadHeat ? deadHeatDivider : undefined;
           totalPaidOut += payoutAmount;
 
+          const winDesc = betIsDeadHeat
+            ? `Won ${bet.bet_type} bet (Dead Heat 1/${deadHeatDivider || 2}) on ${bet.horse_name} in ${race.name || 'Race'}`
+            : `Won ${bet.bet_type} bet on ${bet.horse_name} in ${race.name || 'Race'}`;
+
           // Credit balance & release exposure
           currentUser.balance = (currentUser.balance ?? 0) + payoutAmount;
           currentUser.exposure = Math.max(0, (currentUser.exposure ?? 0) - bet.stake);

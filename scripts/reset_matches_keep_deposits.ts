@@ -29,7 +29,7 @@ async function main() {
   // 2. Delete winnings & bets from transactions
   console.log('🗑️ Deleting win/bet transactions...');
   const delTxs = await TransactionModel.deleteMany({
-    type: { $in: ['WIN', 'BET', 'PAYOUT', 'LOST', 'REFUND'] },
+    type: { $in: ['WIN', 'BET', 'REFUND'] },
   });
   console.log(`✅ Deleted ${delTxs.deletedCount} non-deposit transactions.`);
 

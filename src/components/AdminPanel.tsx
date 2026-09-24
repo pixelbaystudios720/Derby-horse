@@ -693,15 +693,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [balanceModalType, setBalanceModalType] = useState<'CREDIT' | 'DEBIT'>('CREDIT');
   const [balanceModalDesc, setBalanceModalDesc] = useState<string>('');
 
-  // Clock timer for live countdowns
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 10000);
-    return () => clearInterval(timer);
-  }, []);
 
-  // Load Admin Data (Ultra-fast single roundtrip bootstrap)
+
+  // Load Admin Data (Ultra-fast single roundtrip bootstrap with 100% flicker-free reference checking)
   const loadAdminData = async (isBackground = false) => {
     // Don't waste CPU/invocations if the browser tab is hidden in background
     if (isBackground && typeof document !== 'undefined' && document.hidden) {
@@ -714,27 +708,43 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       // 1. Try unified fast bootstrap endpoint first
       const bootstrap = await api.getAdminBootstrap();
       if (bootstrap) {
-        if (bootstrap.stats) setStats(bootstrap.stats);
-        if (Array.isArray(bootstrap.users)) setUsers(bootstrap.users);
-        if (Array.isArray(bootstrap.bets)) setAllBets(bootstrap.bets);
-        if (Array.isArray(bootstrap.deposits)) setDepositRequests(bootstrap.deposits);
-        if (Array.isArray(bootstrap.withdrawals)) setWithdrawalRequests(bootstrap.withdrawals);
-        if (Array.isArray(bootstrap.race_centers) && bootstrap.race_centers.length > 0) {
-          setRaceCenters(bootstrap.race_centers);
-          const savedCenterId = (typeof window !== 'undefined' ? localStorage.getItem('derby_admin_selected_center') : null) || bootstrap.race_centers[0].id;
-          const targetCenter = bootstrap.race_centers.find(c => c.id === savedCenterId) || bootstrap.race_centers[0];
-          setSelectedManageCenterId((prev) => prev || targetCenter.id);
-          setNewDayCenterId((prev) => prev || targetCenter.id);
-          setNewRaceCenterId((prev) => prev || targetCenter.id);
-          setNewVenue((prev) => (prev && prev !== 'Hyderabad Race Club' ? prev : `${targetCenter.name} Turf Club`));
+        if (bootstrap.stats) {
+          setStats((prev: any) => (JSON.stringify(prev) === JSON.stringify(bootstrap.stats) ? prev : bootstrap.stats));
         }
-        if (Array.isArray(bootstrap.race_days)) setRaceDays(bootstrap.race_days);
+        if (Array.isArray(bootstrap.users)) {
+          setUsers((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.users) ? prev : bootstrap.users));
+        }
+        if (Array.isArray(bootstrap.bets)) {
+          setAllBets((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.bets) ? prev : bootstrap.bets));
+        }
+        if (Array.isArray(bootstrap.deposits)) {
+          setDepositRequests((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.deposits) ? prev : bootstrap.deposits));
+        }
+        if (Array.isArray(bootstrap.withdrawals)) {
+          setWithdrawalRequests((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.withdrawals) ? prev : bootstrap.withdrawals));
+        }
+        if (Array.isArray(bootstrap.race_centers) && bootstrap.race_centers.length > 0) {
+          setRaceCenters((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.race_centers) ? prev : bootstrap.race_centers));
+          if (!isBackground) {
+            const savedCenterId = (typeof window !== 'undefined' ? localStorage.getItem('derby_admin_selected_center') : null) || bootstrap.race_centers[0].id;
+            const targetCenter = bootstrap.race_centers.find(c => c.id === savedCenterId) || bootstrap.race_centers[0];
+            setSelectedManageCenterId((prev) => prev || targetCenter.id);
+            setNewDayCenterId((prev) => prev || targetCenter.id);
+            setNewRaceCenterId((prev) => prev || targetCenter.id);
+            setNewVenue((prev) => (prev && prev !== 'Hyderabad Race Club' ? prev : `${targetCenter.name} Turf Club`));
+          }
+        }
+        if (Array.isArray(bootstrap.race_days)) {
+          setRaceDays((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.race_days) ? prev : bootstrap.race_days));
+        }
         if (bootstrap.system_settings) {
           const sys = bootstrap.system_settings;
-          setSystemSettings(sys);
-          if (sys.max_bet_per_horse !== undefined) setLimitMaxBet(String(sys.max_bet_per_horse));
-          if (sys.max_win_per_race !== undefined) setLimitMaxWin(String(sys.max_win_per_race));
-          if (sys.min_bet_amount !== undefined) setLimitMinBet(String(sys.min_bet_amount));
+          setSystemSettings((prev) => (JSON.stringify(prev) === JSON.stringify(sys) ? prev : sys));
+          if (!isBackground) {
+            if (sys.max_bet_per_horse !== undefined) setLimitMaxBet(String(sys.max_bet_per_horse));
+            if (sys.max_win_per_race !== undefined) setLimitMaxWin(String(sys.max_win_per_race));
+            if (sys.min_bet_amount !== undefined) setLimitMinBet(String(sys.min_bet_amount));
+          }
         }
         return;
       }
@@ -754,41 +764,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const [resStats, resUsers, resBets, resDeposits, resWithdrawals, resCenters, resDays, resSys] = results;
 
       if (resStats.status === 'fulfilled' && resStats.value) {
-        setStats(resStats.value);
+        setStats((prev: any) => (JSON.stringify(prev) === JSON.stringify(resStats.value) ? prev : resStats.value));
         try { localStorage.setItem('derby_admin_stats', JSON.stringify(resStats.value)); } catch {}
       }
       if (resUsers.status === 'fulfilled' && Array.isArray(resUsers.value)) {
-        setUsers(resUsers.value);
+        setUsers((prev) => (JSON.stringify(prev) === JSON.stringify(resUsers.value) ? prev : resUsers.value));
         try { localStorage.setItem('derby_admin_users', JSON.stringify(resUsers.value)); } catch {}
       }
       if (resBets.status === 'fulfilled' && Array.isArray(resBets.value)) {
-        setAllBets(resBets.value);
+        setAllBets((prev) => (JSON.stringify(prev) === JSON.stringify(resBets.value) ? prev : resBets.value));
         try { localStorage.setItem('derby_admin_bets', JSON.stringify(resBets.value)); } catch {}
       }
       if (resDeposits.status === 'fulfilled' && Array.isArray(resDeposits.value)) {
-        setDepositRequests(resDeposits.value);
+        setDepositRequests((prev) => (JSON.stringify(prev) === JSON.stringify(resDeposits.value) ? prev : resDeposits.value));
       }
       if (resWithdrawals.status === 'fulfilled' && Array.isArray(resWithdrawals.value)) {
-        setWithdrawalRequests(resWithdrawals.value);
+        setWithdrawalRequests((prev) => (JSON.stringify(prev) === JSON.stringify(resWithdrawals.value) ? prev : resWithdrawals.value));
       }
       if (resCenters.status === 'fulfilled' && Array.isArray(resCenters.value) && resCenters.value.length > 0) {
-        setRaceCenters(resCenters.value);
-        const savedCenterId = (typeof window !== 'undefined' ? localStorage.getItem('derby_admin_selected_center') : null) || resCenters.value[0].id;
-        const targetCenter = resCenters.value.find(c => c.id === savedCenterId) || resCenters.value[0];
-        setSelectedManageCenterId((prev) => prev || targetCenter.id);
-        setNewDayCenterId((prev) => prev || targetCenter.id);
-        setNewRaceCenterId((prev) => prev || targetCenter.id);
-        setNewVenue((prev) => (prev && prev !== 'Hyderabad Race Club' ? prev : `${targetCenter.name} Turf Club`));
+        setRaceCenters((prev) => (JSON.stringify(prev) === JSON.stringify(resCenters.value) ? prev : resCenters.value));
+        if (!isBackground) {
+          const savedCenterId = (typeof window !== 'undefined' ? localStorage.getItem('derby_admin_selected_center') : null) || resCenters.value[0].id;
+          const targetCenter = resCenters.value.find(c => c.id === savedCenterId) || resCenters.value[0];
+          setSelectedManageCenterId((prev) => prev || targetCenter.id);
+          setNewDayCenterId((prev) => prev || targetCenter.id);
+          setNewRaceCenterId((prev) => prev || targetCenter.id);
+          setNewVenue((prev) => (prev && prev !== 'Hyderabad Race Club' ? prev : `${targetCenter.name} Turf Club`));
+        }
       }
       if (resDays.status === 'fulfilled' && Array.isArray(resDays.value)) {
-        setRaceDays(resDays.value);
+        setRaceDays((prev) => (JSON.stringify(prev) === JSON.stringify(resDays.value) ? prev : resDays.value));
       }
       if (resSys.status === 'fulfilled' && resSys.value) {
         const sysSettings = resSys.value;
-        setSystemSettings(sysSettings);
-        if (sysSettings.max_bet_per_horse !== undefined) setLimitMaxBet(String(sysSettings.max_bet_per_horse));
-        if (sysSettings.max_win_per_race !== undefined) setLimitMaxWin(String(sysSettings.max_win_per_race));
-        if (sysSettings.min_bet_amount !== undefined) setLimitMinBet(String(sysSettings.min_bet_amount));
+        setSystemSettings((prev) => (JSON.stringify(prev) === JSON.stringify(sysSettings) ? prev : sysSettings));
+        if (!isBackground) {
+          if (sysSettings.max_bet_per_horse !== undefined) setLimitMaxBet(String(sysSettings.max_bet_per_horse));
+          if (sysSettings.max_win_per_race !== undefined) setLimitMaxWin(String(sysSettings.max_win_per_race));
+          if (sysSettings.min_bet_amount !== undefined) setLimitMinBet(String(sysSettings.min_bet_amount));
+        }
       }
     } catch (err: any) {
       console.error('Error loading admin data:', err);
@@ -5915,7 +5929,179 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             )}
           </div>
 
-          <div className="overflow-x-auto scrollbar-none rounded-xl border border-slate-800/80 bg-slate-950">
+          {/* ---------------- 1. MOBILE RESPONSIVE USER CARDS (No Horizontal Scrolling Needed) ---------------- */}
+          <div className="block md:hidden space-y-3">
+            {users
+              .filter((u) => {
+                if (!userSearchQuery) return true;
+                const q = userSearchQuery.toLowerCase();
+                return (
+                  (u.ref_id && u.ref_id.toLowerCase().includes(q)) ||
+                  u.id.toLowerCase().includes(q) ||
+                  u.username.toLowerCase().includes(q) ||
+                  (u.full_name && u.full_name.toLowerCase().includes(q)) ||
+                  (u.email && u.email.toLowerCase().includes(q)) ||
+                  u.phone.includes(q)
+                );
+              })
+              .map((u) => {
+                const displayUniqueId = u.ref_id || u.id;
+                const userBetCount = (allBets || []).filter(b => b.user_id === u.id).length;
+                const userDeposited = u.total_deposited || (depositRequests || []).filter(d => (d.user_id === u.id || d.username === u.username) && d.status === 'APPROVED').reduce((s, d) => s + (d.amount || 0), 0);
+                const userWithdrawn = u.total_withdrawn || (withdrawalRequests || []).filter(w => (w.user_id === u.id || w.username === u.username) && (w.status === 'SUCCESSFUL' || w.status === 'IN_PROGRESS')).reduce((s, w) => s + (w.amount || 0), 0);
+                return (
+                  <div key={u.id} className="bg-slate-950 border border-slate-800/90 rounded-2xl p-3.5 space-y-3 shadow-md">
+                    {/* Header: Avatar, Name, Unique ID, Status */}
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="w-10 h-10 rounded-xl overflow-hidden bg-slate-900 border border-slate-700 shrink-0">
+                          <img
+                            src={u.profile_photo || `https://api.dicebear.com/7.x/bottts/svg?seed=${u.username}`}
+                            alt={u.username}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h4 className="font-bold text-white text-sm truncate">{u.full_name || u.username}</h4>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(displayUniqueId);
+                                setCopiedUserId(displayUniqueId);
+                                setTimeout(() => setCopiedUserId(null), 2000);
+                              }}
+                              className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[9px] font-black border border-amber-500/40 hover:bg-amber-500/30 transition flex items-center gap-0.5 cursor-pointer shrink-0"
+                              title="Click to copy Unique User ID"
+                            >
+                              <span>{displayUniqueId}</span>
+                              {copiedUserId === displayUniqueId ? (
+                                <Check className="w-2.5 h-2.5 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-2.5 h-2.5 opacity-60" />
+                              )}
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-slate-400 font-mono">@{u.username}</p>
+                        </div>
+                      </div>
+
+                      {/* Status Badge */}
+                      <div className="shrink-0">
+                        {u.is_blocked ? (
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                            🛑 BLOCKED
+                          </span>
+                        ) : (
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                            u.role === 'admin'
+                              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
+                              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          }`}>
+                            {u.role === 'admin' ? 'ADMIN' : 'ACTIVE'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Contact details */}
+                    <div className="grid grid-cols-2 gap-2 text-[11px] bg-slate-900/80 p-2 rounded-xl border border-slate-800 font-mono">
+                      <div className="truncate flex items-center gap-1 text-slate-300">
+                        <Phone className="w-3 h-3 text-slate-500 shrink-0" />
+                        <span className="truncate">{u.phone}</span>
+                      </div>
+                      <div className="truncate flex items-center gap-1 text-emerald-300">
+                        <Mail className="w-3 h-3 text-emerald-400 shrink-0" />
+                        <span className="truncate">{u.email || 'No email'}</span>
+                      </div>
+                    </div>
+
+                    {/* Financial Summary 4-box Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div className="bg-slate-900/90 p-2 rounded-xl border border-slate-800/80">
+                        <span className="text-[9px] text-slate-400 block uppercase font-bold">Liquid Balance</span>
+                        <strong className="text-sm font-black text-emerald-400 font-mono">₹{u.balance.toLocaleString('en-IN')}</strong>
+                      </div>
+                      <div className="bg-slate-900/90 p-2 rounded-xl border border-slate-800/80">
+                        <span className="text-[9px] text-slate-400 block uppercase font-bold">Exposure</span>
+                        <strong className="text-xs font-black text-rose-400 font-mono">₹{u.exposure.toLocaleString('en-IN')}</strong>
+                      </div>
+                      <div className="bg-slate-900/90 p-2 rounded-xl border border-slate-800/80">
+                        <span className="text-[9px] text-slate-400 block uppercase font-bold">Total Added</span>
+                        <span className="text-xs font-bold text-emerald-400 font-mono">+{userDeposited > 0 ? `₹${userDeposited.toLocaleString('en-IN')}` : '₹0'}</span>
+                      </div>
+                      <div className="bg-slate-900/90 p-2 rounded-xl border border-slate-800/80">
+                        <span className="text-[9px] text-slate-400 block uppercase font-bold">Withdrawn</span>
+                        <span className="text-xs font-bold text-blue-400 font-mono">-{userWithdrawn > 0 ? `₹${userWithdrawn.toLocaleString('en-IN')}` : '₹0'}</span>
+                      </div>
+                    </div>
+
+                    {/* Action Controls Row */}
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenUserLedger(u)}
+                        className="py-1.5 px-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition flex items-center justify-center gap-1"
+                      >
+                        <FileText className="w-3 h-3" />
+                        <span>Ledger</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewBetsUser(u)}
+                        className="py-1.5 px-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold transition flex items-center justify-center gap-1"
+                      >
+                        <Coins className="w-3 h-3" />
+                        <span>{userBetCount} Bets</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleLoginAsUser(u)}
+                        className="py-1.5 px-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] font-bold transition flex items-center justify-center gap-1"
+                      >
+                        <Eye className="w-3 h-3 text-indigo-400" />
+                        <span>Login</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleBlockUser(u)}
+                        className={`py-1.5 px-2 rounded-xl text-[10px] font-bold transition border flex items-center justify-center gap-1 ${
+                          u.is_blocked
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                        }`}
+                      >
+                        <Lock className="w-3 h-3" />
+                        <span>{u.is_blocked ? 'Unblock' : 'Block'}</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setBalanceModalUser(u);
+                          setBalanceModalType('CREDIT');
+                          setBalanceModalAmount('1000');
+                        }}
+                        className="py-1.5 px-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500 text-emerald-300 hover:text-black font-black text-[10px] transition border border-emerald-500/30 flex items-center justify-center"
+                      >
+                        + Credit
+                      </button>
+                      <button
+                        onClick={() => {
+                          setBalanceModalUser(u);
+                          setBalanceModalType('DEBIT');
+                          setBalanceModalAmount('500');
+                        }}
+                        className="py-1.5 px-2 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white font-black text-[10px] transition border border-rose-500/30 flex items-center justify-center"
+                      >
+                        - Debit
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+
+          {/* ---------------- 2. DESKTOP / TABLET USER TABLE (Full Width) ---------------- */}
+          <div className="hidden md:block overflow-x-auto scrollbar-none rounded-xl border border-slate-800/80 bg-slate-950">
             <table className="w-full min-w-[850px] text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-900 border-b border-slate-800 text-slate-400 uppercase font-semibold text-[11px]">
@@ -6120,8 +6306,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </tbody>
             </table>
           </div>
-
-          {/* ADD USER MODAL */}
           {addUserModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
               <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
@@ -11112,7 +11296,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
               {/* LIVE BETS ON THIS RACE & FINANCIAL SIMULATION */}
               {(() => {
-                const raceBets = bets.filter(
+                const raceBets = (allBets || []).filter(
                   (b) => b.race_id === settlingRace.id || b.race_name?.toLowerCase() === settlingRace.name?.toLowerCase()
                 );
                 const totalStake = raceBets.reduce((sum, b) => sum + Number(b.stake || b.amount || 0), 0);
