@@ -109,7 +109,7 @@ export const RaceList: React.FC<RaceListProps> = ({
       }
 
       if (filterStatus === 'upcoming') {
-        return (race.status === 'UPCOMING' || race.status === 'OPEN' || !race.status);
+        return (race.status === 'UPCOMING' || race.status === 'OPEN' || !race.status) && race.status !== 'RESULTED' && race.status !== 'CLOSED';
       }
       if (filterStatus === 'live') {
         return race.status === 'LIVE' || race.status === 'OPEN_FOR_BETTING';
@@ -117,7 +117,8 @@ export const RaceList: React.FC<RaceListProps> = ({
       if (filterStatus === 'resulted') {
         return race.status === 'RESULTED' || race.status === 'CLOSED';
       }
-      return true;
+      // 'all' = All Active playable matches (Live + Upcoming)
+      return race.status !== 'RESULTED' && race.status !== 'CLOSED';
     });
   }, [publicRaces, searchQuery, selectedCenter, filterStatus]);
 
@@ -136,8 +137,8 @@ export const RaceList: React.FC<RaceListProps> = ({
       r.status !== 'OPEN_FOR_BETTING'
   );
 
-  // 3rd: Recent Results & Settled Races (Completed, resulted, payouts distributed)
-  const recentResultsRaces = filteredRaces.filter(
+  // 3rd: Recent Results & Settled Races (Only for explicit 'resulted' filter)
+  const recentResultsRaces = publicRaces.filter(
     (r) => r.status === 'RESULTED' || r.status === 'CLOSED'
   );
 
@@ -150,9 +151,13 @@ export const RaceList: React.FC<RaceListProps> = ({
       .slice(0, 4);
   }, [publicRaces]);
 
-  // Featured Live Race for Turf Insights
+  // Featured Live Race for Turf Insights (only from LIVE or UPCOMING, never past resulted)
   const featuredLiveRace = useMemo(() => {
-    return publicRaces.find((r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING') || (publicRaces.length > 0 ? publicRaces[0] : null);
+    return (
+      publicRaces.find((r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING') ||
+      publicRaces.find((r) => r.status === 'UPCOMING' || r.status === 'OPEN') ||
+      null
+    );
   }, [publicRaces]);
 
   const getStatusBadge = (status: RaceStatus) => {
@@ -336,51 +341,35 @@ export const RaceList: React.FC<RaceListProps> = ({
         {/* Status Filter Tabs */}
         <div className="flex items-center gap-1.5 bg-[#091510] p-1.5 rounded-2xl border border-emerald-900/50 text-xs font-bold overflow-x-auto scrollbar-none shadow-inner">
           <button
-            id="tab-filter-upcoming"
-            onClick={() => {
-              soundManager.playClick();
-              onChangeFilter('upcoming');
-            }}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-              filterStatus === 'upcoming'
-                ? 'bg-gradient-to-r from-[#d4af37] to-[#e5b869] text-black font-black shadow-[0_0_12px_rgba(229,184,105,0.4)]'
-                : 'text-slate-300 hover:text-white hover:bg-emerald-950/40'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5" />
-            <span>Upcoming ({publicRaces.filter((r) => r.status === 'UPCOMING' || r.status === 'OPEN' || !r.status).length})</span>
-          </button>
-
-          <button
             id="tab-filter-live"
             onClick={() => {
               soundManager.playClick();
               onChangeFilter('live');
             }}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`px-3.5 py-1.5 rounded-xl transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
               filterStatus === 'live'
                 ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black shadow-[0_0_12px_rgba(16,185,129,0.5)]'
                 : 'text-emerald-400 hover:text-emerald-200 hover:bg-emerald-950/40'
             }`}
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>🔴 Live & Open ({publicRaces.filter((r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING').length})</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>🔴 Live & In-Play ({publicRaces.filter((r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING').length})</span>
           </button>
 
           <button
-            id="tab-filter-resulted"
+            id="tab-filter-upcoming"
             onClick={() => {
               soundManager.playClick();
-              onChangeFilter('resulted');
+              onChangeFilter('upcoming');
             }}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-              filterStatus === 'resulted'
+            className={`px-3.5 py-1.5 rounded-xl transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              filterStatus === 'upcoming'
                 ? 'bg-gradient-to-r from-[#d4af37] to-[#e5b869] text-black font-black shadow-[0_0_12px_rgba(229,184,105,0.4)]'
                 : 'text-slate-300 hover:text-white hover:bg-emerald-950/40'
             }`}
           >
-            <Trophy className="w-3.5 h-3.5" />
-            <span>Completed ({publicRaces.filter((r) => r.status === 'RESULTED' || r.status === 'CLOSED').length})</span>
+            <Clock className="w-3.5 h-3.5 text-[#e5b869]" />
+            <span>Upcoming Fixtures ({publicRaces.filter((r) => (r.status === 'UPCOMING' || r.status === 'OPEN' || !r.status) && r.status !== 'RESULTED' && r.status !== 'CLOSED').length})</span>
           </button>
 
           <button
@@ -389,13 +378,29 @@ export const RaceList: React.FC<RaceListProps> = ({
               soundManager.playClick();
               onChangeFilter('all');
             }}
-            className={`px-3 py-1.5 rounded-xl transition cursor-pointer whitespace-nowrap ${
+            className={`px-3.5 py-1.5 rounded-xl transition cursor-pointer whitespace-nowrap ${
               filterStatus === 'all'
                 ? 'bg-gradient-to-r from-[#d4af37] to-[#e5b869] text-black font-black shadow-[0_0_12px_rgba(229,184,105,0.4)]'
                 : 'text-slate-300 hover:text-white hover:bg-emerald-950/40'
             }`}
           >
-            <span>All Races ({publicRaces.length})</span>
+            <span>All Active ({publicRaces.filter((r) => r.status !== 'RESULTED' && r.status !== 'CLOSED').length})</span>
+          </button>
+
+          <button
+            id="tab-filter-resulted"
+            onClick={() => {
+              soundManager.playClick();
+              onChangeFilter('resulted');
+            }}
+            className={`px-3.5 py-1.5 rounded-xl transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              filterStatus === 'resulted'
+                ? 'bg-gradient-to-r from-[#d4af37] to-[#e5b869] text-black font-black shadow-[0_0_12px_rgba(229,184,105,0.4)]'
+                : 'text-slate-400 hover:text-white hover:bg-slate-900/40'
+            }`}
+          >
+            <Trophy className="w-3.5 h-3.5 text-amber-400" />
+            <span>Official Results ({publicRaces.filter((r) => r.status === 'RESULTED' || r.status === 'CLOSED').length})</span>
           </button>
         </div>
       </div>
@@ -412,10 +417,24 @@ export const RaceList: React.FC<RaceListProps> = ({
               <p className="text-xs font-semibold">Loading race fixtures...</p>
             </div>
           ) : filteredRaces.length === 0 ? (
-            <div className="p-8 text-center bg-slate-900/60 rounded-3xl border-2 border-emerald-900/40">
-              <Trophy className="w-10 h-10 text-slate-600 mx-auto mb-2" />
-              <p className="text-sm font-bold text-slate-300">No races found for this selection</p>
-              <p className="text-xs text-slate-500 mt-1">Try switching venue or filter tabs.</p>
+            <div className="p-8 text-center bg-[#040e08]/90 rounded-3xl border-2 border-emerald-900/40 space-y-3">
+              <Clock className="w-12 h-12 text-[#e5b869] mx-auto opacity-70" />
+              <div>
+                <p className="text-base font-black text-white">No Live or Upcoming Fixtures Right Now</p>
+                <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                  Today's race cards will be published by stewards shortly. Live betting opens 30 minutes prior to race post time.
+                </p>
+              </div>
+              {publicRaces.filter((r) => r.status === 'RESULTED' || r.status === 'CLOSED').length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onChangeFilter('resulted')}
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 text-xs font-bold transition cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Trophy className="w-3.5 h-3.5" />
+                  <span>View Past Official Results ({publicRaces.filter((r) => r.status === 'RESULTED' || r.status === 'CLOSED').length})</span>
+                </button>
+              )}
             </div>
           ) : (
             <>
@@ -746,9 +765,9 @@ export const RaceList: React.FC<RaceListProps> = ({
               )}
 
               {/* ======================================================== */}
-              {/* 3RD: 🏆 RECENT RESULTS & SETTLED RACES                   */}
+              {/* 3RD: 🏆 RECENT RESULTS & SETTLED RACES (Only when clicked) */}
               {/* ======================================================== */}
-              {(filterStatus === 'all' || filterStatus === 'resulted') && (
+              {filterStatus === 'resulted' && (
                 <div className="space-y-3 pt-2">
                   <div className="flex items-center justify-between pb-1 border-b border-amber-500/40">
                     <div className="flex items-center gap-2">
