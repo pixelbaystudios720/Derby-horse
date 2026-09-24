@@ -3993,6 +3993,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="bg-[#091510] rounded-2xl border-2 border-emerald-900/80 shadow-2xl overflow-hidden">
                     {(() => {
                       const timingStatus = getRaceBettingCloseStatus(activeRace);
+                      const isAllSuspended = !!(activeRace.is_suspended || (activeRace.horses && activeRace.horses.length > 0 && activeRace.horses.every((h) => h.is_suspended)));
                       return (
                         <>
                           {/* Handwritten Header: 01 | XYZ PLATE | 1200M | 1:30 | 1-Min Auto-Close | SUSP ALL */}
@@ -7117,9 +7118,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   {dep.payment_method || 'UPI Fast'}
                                 </span>
                               </div>
-                              <p className="text-xs text-slate-400">
-                                Bettor: <strong className="text-white">@{dep.username}</strong> <span className="text-slate-500 font-mono">({dep.user_id})</span>
-                              </p>
+                              {(() => {
+                                const matchedUser = (users || []).find((u) => u.id === dep.user_id || u.username === dep.username);
+                                return (
+                                  <div className="text-xs text-slate-300 mt-1 flex items-center gap-2 flex-wrap">
+                                    <span>Bettor: <strong className="text-white font-bold">{matchedUser?.full_name ? `${matchedUser.full_name} (@${dep.username})` : `@${dep.username}`}</strong></span>
+                                    {matchedUser?.ref_id && (
+                                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30">
+                                        ID: {matchedUser.ref_id}
+                                      </span>
+                                    )}
+                                    {matchedUser?.phone && (
+                                      <span className="text-slate-400 font-mono text-[11px] flex items-center gap-1">
+                                        📞 {matchedUser.phone}
+                                      </span>
+                                    )}
+                                    {matchedUser?.email && (
+                                      <span className="text-emerald-400 font-mono text-[11px] flex items-center gap-1">
+                                        ✉️ {matchedUser.email}
+                                      </span>
+                                    )}
+                                    {matchedUser !== undefined && (
+                                      <span className="text-emerald-400 font-mono font-bold text-[11px]">
+                                        Wallet Balance: ₹{matchedUser.balance?.toLocaleString('en-IN')}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
 
@@ -7294,9 +7320,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     {wth.upi_id ? 'UPI Fast Rail' : 'Bank IMPS'}
                                   </span>
                                 </div>
-                                <p className="text-xs text-slate-400">
-                                  Bettor: <strong className="text-white">@{wth.username}</strong> <span className="text-slate-500 font-mono">({wth.user_id})</span>
-                                </p>
+                                {(() => {
+                                  const matchedUser = (users || []).find((u) => u.id === wth.user_id || u.username === wth.username);
+                                  return (
+                                    <div className="text-xs text-slate-300 mt-1 flex items-center gap-2 flex-wrap">
+                                      <span>Bettor: <strong className="text-white font-bold">{matchedUser?.full_name ? `${matchedUser.full_name} (@${wth.username})` : `@${wth.username}`}</strong></span>
+                                      {matchedUser?.ref_id && (
+                                        <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/30">
+                                          ID: {matchedUser.ref_id}
+                                        </span>
+                                      )}
+                                      {matchedUser?.phone && (
+                                        <span className="text-slate-400 font-mono text-[11px] flex items-center gap-1">
+                                          📞 {matchedUser.phone}
+                                        </span>
+                                      )}
+                                      {matchedUser?.email && (
+                                        <span className="text-emerald-400 font-mono text-[11px] flex items-center gap-1">
+                                          ✉️ {matchedUser.email}
+                                        </span>
+                                      )}
+                                      {matchedUser !== undefined && (
+                                        <span className="text-emerald-400 font-mono font-bold text-[11px]">
+                                          Wallet Balance: ₹{matchedUser.balance?.toLocaleString('en-IN')}
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
 
