@@ -703,9 +703,9 @@ export const api = {
           const data = JSON.parse(text);
           if (Array.isArray(data.races)) {
             if (status === 'live') {
-              return data.races.filter((r: Race) => r.status === 'LIVE');
+              return data.races.filter((r: Race) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING');
             } else if (status === 'open') {
-              return data.races.filter((r: Race) => r.status === 'OPEN' || r.status === 'UPCOMING' || r.status === 'LIVE');
+              return data.races.filter((r: Race) => r.status === 'OPEN' || r.status === 'UPCOMING' || r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING');
             } else if (status === 'upcoming') {
               return data.races.filter((r: Race) => r.status === 'UPCOMING' || r.status === 'OPEN' || r.status === 'DRAFT');
             } else if (status === 'resulted') {
@@ -719,6 +719,18 @@ export const api = {
       console.warn('API getRaces failed:', e);
     }
     
+    try {
+      const cached = localStorage.getItem('derby_custom_races');
+      if (cached) {
+        const list: Race[] = JSON.parse(cached);
+        if (status === 'live') return list.filter((r) => r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING');
+        if (status === 'open') return list.filter((r) => r.status === 'OPEN' || r.status === 'UPCOMING' || r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING');
+        if (status === 'upcoming') return list.filter((r) => r.status === 'UPCOMING' || r.status === 'OPEN' || r.status === 'DRAFT');
+        if (status === 'resulted') return list.filter((r) => r.status === 'RESULTED' || r.status === 'CLOSED');
+        return list;
+      }
+    } catch {}
+
     return [];
   },
 
