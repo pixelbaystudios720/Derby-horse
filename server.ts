@@ -3802,10 +3802,16 @@ app.get('/api/notifications', async (req, res) => {
     ]);
 
     const notifMap = new Map<string, any>();
+    const readStatusMap = new Map<string, boolean>();
 
-    // 1. Add database notifications
+    // 1. Add database notifications & index read status
     (mongoNotifs || []).forEach((n: any) => {
-      notifMap.set(n.id || n.reference_id || `n_${n.created_at}`, n);
+      const key = n.id || n.reference_id || `n_${n.created_at}`;
+      notifMap.set(key, n);
+      if (n.is_read) {
+        readStatusMap.set(key, true);
+        if (n.reference_id) readStatusMap.set(n.reference_id, true);
+      }
     });
 
     // 2. Synthesize deposit notifications
@@ -3813,6 +3819,7 @@ app.get('/api/notifications', async (req, res) => {
     allDeps.forEach((dep: any) => {
       const depKey = `notif_dep_${dep.id}`;
       if (!notifMap.has(depKey) && !notifMap.has(dep.utr_number)) {
+        const isRead = readStatusMap.get(depKey) || readStatusMap.get(dep.utr_number) || false;
         if (dep.status === 'APPROVED') {
           notifMap.set(depKey, {
             id: depKey,
@@ -3822,7 +3829,7 @@ app.get('/api/notifications', async (req, res) => {
             message: `Your deposit of ₹${Number(dep.amount).toLocaleString('en-IN')} via ${dep.payment_method || 'UPI'} (UTR: ${dep.utr_number}) has been approved and credited to your wallet balance!`,
             amount: Number(dep.amount),
             reference_id: dep.utr_number || dep.id,
-            is_read: false,
+            is_read: isRead,
             created_at: dep.reviewed_at || dep.created_at || new Date().toISOString(),
           });
         } else if (dep.status === 'REJECTED') {
@@ -3834,7 +3841,7 @@ app.get('/api/notifications', async (req, res) => {
             message: `Your deposit request of ₹${Number(dep.amount).toLocaleString('en-IN')} was rejected. Reason: ${dep.admin_notes || 'UTR could not be verified'}.`,
             amount: Number(dep.amount),
             reference_id: dep.utr_number || dep.id,
-            is_read: false,
+            is_read: isRead,
             created_at: dep.reviewed_at || dep.created_at || new Date().toISOString(),
           });
         }
@@ -3846,6 +3853,7 @@ app.get('/api/notifications', async (req, res) => {
     allWths.forEach((wth: any) => {
       const wthKey = `notif_wth_${wth.id}`;
       if (!notifMap.has(wthKey)) {
+        const isRead = readStatusMap.get(wthKey) || readStatusMap.get(wth.id) || false;
         if (wth.status === 'SUCCESSFUL') {
           notifMap.set(wthKey, {
             id: wthKey,
@@ -3855,7 +3863,7 @@ app.get('/api/notifications', async (req, res) => {
             message: `Your withdrawal of ₹${Number(wth.amount).toLocaleString('en-IN')} to ${wth.upi_id || 'Bank'} has been completed and transferred.`,
             amount: Number(wth.amount),
             reference_id: wth.id,
-            is_read: false,
+            is_read: isRead,
             created_at: wth.reviewed_at || wth.created_at || new Date().toISOString(),
           });
         } else if (wth.status === 'IN_PROGRESS') {
@@ -3867,7 +3875,7 @@ app.get('/api/notifications', async (req, res) => {
             message: `Your withdrawal of ₹${Number(wth.amount).toLocaleString('en-IN')} is approved and queued for payout transfer.`,
             amount: Number(wth.amount),
             reference_id: wth.id,
-            is_read: false,
+            is_read: isRead,
             created_at: wth.approved_at || wth.created_at || new Date().toISOString(),
           });
         }
@@ -3877,6 +3885,7 @@ app.get('/api/notifications', async (req, res) => {
     // 4. Welcome notifications
     const welcomeBonusKey = `notif_welcome_${queryUser}_bonus`;
     if (!notifMap.has(welcomeBonusKey)) {
+      const isRead = readStatusMap.get(welcomeBonusKey) || false;
       notifMap.set(welcomeBonusKey, {
         id: welcomeBonusKey,
         user_id: queryUser,
@@ -3884,7 +3893,7 @@ app.get('/api/notifications', async (req, res) => {
         title: '🎉 Welcome to DerbyBet Turf!',
         message: 'Welcome aboard! ₹50 complimentary sign-up bonus has been credited to your wallet balance. Start exploring live fixtures & placing selections!',
         amount: 50,
-        is_read: false,
+        is_read: isRead,
         created_at: matchedUser?.created_at || new Date().toISOString(),
       });
     }
@@ -3923,9 +3932,10 @@ app.post('/api/notifications', async (req, res) => {
   db.notifications.unshift(newNotif);
   saveDatabase();
 
-  ensureMongoConnected().then(async () => {
+  try {
+    await ensureMongoConnected();
     await NotificationModel.create(newNotif);
-  }).catch(() => {});
+  } catch {}
 
   return res.json({ success: true, notification: newNotif });
 });
@@ -3937,24 +3947,40 @@ app.put('/api/notifications/:id/read', async (req, res) => {
     if (item) item.is_read = true;
     saveDatabase();
   }
-  ensureMongoConnected().then(async () => {
-    await NotificationModel.updateOne({ id }, { $set: { is_read: true } });
-  }).catch(() => {});
+  try {
+    await ensureMongoConnected();
+    await NotificationModel.findOneAndUpdate({ id }, { $set: { is_read: true } }, { upsert: true });
+  } catch {}
   return res.json({ success: true });
 });
 
 app.put('/api/notifications/read-all', async (req, res) => {
   const { user_id } = req.body || {};
-  if (user_id && db.notifications) {
-    db.notifications.forEach((n: any) => {
-      if (n.user_id === user_id) n.is_read = true;
-    });
-    saveDatabase();
-  }
   if (user_id) {
-    ensureMongoConnected().then(async () => {
-      await NotificationModel.updateMany({ user_id }, { $set: { is_read: true } });
-    }).catch(() => {});
+    try {
+      await ensureMongoConnected();
+      const matchedUser = await UserModel.findOne({
+        $or: [{ id: user_id }, { username: user_id }, { mobile: user_id }],
+      }).lean();
+      const userIds = matchedUser ? [matchedUser.id, matchedUser.username, matchedUser.mobile] : [user_id];
+
+      if (db.notifications) {
+        db.notifications.forEach((n: any) => {
+          if (userIds.includes(n.user_id)) n.is_read = true;
+        });
+        saveDatabase();
+      }
+
+      await NotificationModel.updateMany({ user_id: { $in: userIds } }, { $set: { is_read: true } });
+
+      // Upsert common synthesized keys as read
+      const welcomeKey = `notif_welcome_${user_id}_bonus`;
+      await NotificationModel.findOneAndUpdate(
+        { id: welcomeKey },
+        { $set: { id: welcomeKey, user_id, is_read: true, title: '🎉 Welcome to DerbyBet Turf!', type: 'DEPOSIT_APPROVED' } },
+        { upsert: true }
+      );
+    } catch {}
   }
   return res.json({ success: true });
 });

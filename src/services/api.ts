@@ -938,7 +938,7 @@ export const api = {
 
   async markNotificationRead(notificationId: string): Promise<void> {
     try {
-      fetch(`${API_BASE}/notifications/${notificationId}/read`, { method: 'PUT' }).catch(() => {});
+      await fetch(`${API_BASE}/notifications/${notificationId}/read`, { method: 'PUT' });
       const raw = localStorage.getItem('derby_user_notifications');
       if (raw) {
         const list: UserNotification[] = JSON.parse(raw);
@@ -951,11 +951,11 @@ export const api = {
 
   async markAllNotificationsRead(userId: string): Promise<void> {
     try {
-      fetch(`${API_BASE}/notifications/read-all`, {
+      await fetch(`${API_BASE}/notifications/read-all`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId }),
-      }).catch(() => {});
+      });
       const raw = localStorage.getItem('derby_user_notifications');
       if (raw) {
         const list: UserNotification[] = JSON.parse(raw);
