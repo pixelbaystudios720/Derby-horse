@@ -725,7 +725,11 @@ export default function App() {
               }
             }}
             onSelectBet={handleOpenBetSlip}
-            userBetsForRace={myBets.filter((b) => b.race_id === currentSelectedRace.id)}
+            userBetsForRace={myBets.filter(
+              (b) =>
+                b.race_id === currentSelectedRace.id ||
+                (b.race_name && currentSelectedRace.name && b.race_name.toLowerCase().trim() === currentSelectedRace.name.toLowerCase().trim())
+            )}
             onOpenMyBets={() => {
               window.location.hash = '#/mybets';
             }}

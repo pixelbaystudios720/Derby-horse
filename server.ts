@@ -1852,11 +1852,16 @@ app.post('/api/bets/place', async (req, res) => {
 
   saveDatabase();
 
-  ensureMongoConnected().then(async () => {
-    await BetModel.create(newBet).catch(() => {});
-    await UserModel.updateOne({ id: user!.id }, { $set: { balance: user!.balance, exposure: user!.exposure } }).catch(() => {});
-    await TransactionModel.create(tx).catch(() => {});
-  }).catch(() => {});
+  try {
+    await ensureMongoConnected();
+    await Promise.all([
+      BetModel.create(newBet),
+      UserModel.updateOne({ id: user.id }, { $set: { balance: user.balance, exposure: user.exposure } }),
+      TransactionModel.create(tx),
+    ]);
+  } catch (err: any) {
+    console.warn('MongoDB bet placement notice:', err.message);
+  }
 
   const { password_hash, ...userProfile } = user;
   return res.json({
@@ -1868,13 +1873,38 @@ app.post('/api/bets/place', async (req, res) => {
 });
 
 // GET /api/bets/my?user_id=...
-app.get('/api/bets/my', (req, res) => {
+app.get('/api/bets/my', async (req, res) => {
   const userId = req.query.user_id as string;
   if (!userId) {
     return res.status(400).json({ error: 'user_id query param is required' });
   }
 
-  const userBets = db.bets.filter((b) => b.user_id === userId);
+  try {
+    await ensureMongoConnected();
+    const matchedUser = await UserModel.findOne({
+      $or: [{ id: userId }, { username: userId }, { mobile: userId }, { phone: userId }],
+    }).lean().catch(() => null);
+
+    const userIds = matchedUser ? [matchedUser.id, matchedUser.username, matchedUser.mobile, matchedUser.phone].filter(Boolean) : [userId];
+
+    const mongoBets = await BetModel.find({
+      $or: [{ user_id: { $in: userIds } }, { username: { $in: userIds } }],
+    }).sort({ placed_at: -1 }).lean().catch(() => []);
+
+    if (mongoBets && mongoBets.length > 0) {
+      // Sync in-memory db.bets
+      mongoBets.forEach((mb: any) => {
+        if (!db.bets.some(b => b.id === mb.id)) {
+          db.bets.unshift(mb as any);
+        }
+      });
+      return res.json({ success: true, bets: mongoBets });
+    }
+  } catch (err: any) {
+    console.error('Error querying mongo bets:', err);
+  }
+
+  const userBets = (db.bets || []).filter((b) => b.user_id === userId || b.username === userId);
   return res.json({ success: true, bets: userBets });
 });
 
