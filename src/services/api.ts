@@ -1838,15 +1838,17 @@ export const api = {
 
   saveLocalRace(race: Race) {
     try {
-      const raw = localStorage.getItem('derby_custom_races');
-      const list: Race[] = raw ? JSON.parse(raw) : [];
-      const idx = list.findIndex((r) => r.id === race.id);
-      if (idx >= 0) {
-        list[idx] = race;
-      } else {
-        list.unshift(race);
+      for (const key of ['derby_races', 'derby_custom_races']) {
+        const raw = localStorage.getItem(key);
+        const list: Race[] = raw ? JSON.parse(raw) : [];
+        const idx = list.findIndex((r) => r.id === race.id);
+        if (idx >= 0) {
+          list[idx] = race;
+        } else {
+          list.unshift(race);
+        }
+        localStorage.setItem(key, JSON.stringify(list));
       }
-      localStorage.setItem('derby_custom_races', JSON.stringify(list));
     } catch {}
   },
 
