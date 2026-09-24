@@ -1313,22 +1313,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     try {
       setIsLoading(true);
-      const res = await api.settleRace(settlingRace.id, {
+      await api.settleRace(settlingRace.id, {
         position_1: p1,
         position_2: p2,
         position_3: p3,
         position_4: p4,
       });
-      soundManager.playWinPayout();
-      setActionMessage(res.message || '🏆 Race settled and payouts distributed! Results and financial ledger updated in Finished Races.');
       setSettlingRace(null);
       await onRefreshData();
       await loadAdminData();
       setActiveTab('finished');
-      setTimeout(() => setActionMessage(null), 4500);
     } catch (err: any) {
-      setActionMessage(err.message || 'Failed to settle race');
-      setTimeout(() => setActionMessage(null), 3500);
+      console.error('Failed to settle race:', err);
     } finally {
       setIsLoading(false);
     }
@@ -3073,52 +3069,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           )}
                         </div>
 
-                        {/* Cockpit Actions: Declare Settlement, Abandon & Suspend All */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleRaceSuspendAll(liveRace.id)}
-                              className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center gap-1.5 ${liveRace.horses.every((h) => h.is_suspended)
-                                  ? 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-md'
-                                  : 'bg-rose-600/30 text-rose-300 border-rose-500/40 hover:bg-rose-600 hover:text-white'
+                          {/* Cockpit Actions: Declare Settlement, Abandon & Suspend All */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                            <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleRaceSuspendAll(liveRace.id)}
+                                className={`flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 ${
+                                  liveRace.horses.every((h) => h.is_suspended)
+                                    ? 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-md'
+                                    : 'bg-rose-600/30 text-rose-300 border-rose-500/40 hover:bg-rose-600 hover:text-white'
                                 }`}
-                            >
-                              <AlertCircle className="w-3.5 h-3.5" />
-                              <span>{liveRace.horses.every((h) => h.is_suspended) ? 'RESUME ALL RUNNERS' : 'SUSPEND ALL BETTING'}</span>
-                            </button>
+                              >
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                <span>{liveRace.horses.every((h) => h.is_suspended) ? 'RESUME ALL RUNNERS' : 'SUSPEND ALL BETTING'}</span>
+                              </button>
 
+                              <button
+                                type="button"
+                                onClick={() => handleAbandonRace(liveRace)}
+                                className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl bg-red-950/60 hover:bg-red-900 text-red-300 hover:text-white border border-red-500/40 text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                                title="Declare Abandoned / Void and refund all bets 100%"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Declare Abandoned</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleStatusChange(liveRace.id, 'CLOSED')}
+                                className="flex-1 sm:flex-none px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+                              >
+                                <Lock className="w-3.5 h-3.5" />
+                                <span>Lock Wagering</span>
+                              </button>
+                            </div>
+
+                            {/* MAIN END LIVE & SETTLE BUTTON */}
                             <button
                               type="button"
-                              onClick={() => handleAbandonRace(liveRace)}
-                              className="px-3 py-2 rounded-xl bg-red-950/60 hover:bg-red-900 text-red-300 hover:text-white border border-red-500/40 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
-                              title="Declare Abandoned / Void and refund all bets 100%"
+                              id={`live-declare-result-btn-${liveRace.id}`}
+                              onClick={() => handleOpenSettle(liveRace)}
+                              className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-xl shadow-amber-950/50 flex items-center justify-center gap-2 ring-2 ring-amber-400/40 active:scale-95"
                             >
-                              <RotateCcw className="w-3.5 h-3.5" />
-                              <span>Declare Abandoned / Void (Refund All)</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleStatusChange(liveRace.id, 'CLOSED')}
-                              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
-                            >
-                              <Lock className="w-3.5 h-3.5" />
-                              <span>Lock / Close Wagering</span>
+                              <Trophy className="w-4 h-4 text-slate-950" />
+                              <span>🏆 END LIVE & SETTLE WINNERS</span>
                             </button>
                           </div>
-
-                          {/* MAIN END LIVE & SETTLE BUTTON */}
-                          <button
-                            type="button"
-                            id={`live-declare-result-btn-${liveRace.id}`}
-                            onClick={() => handleOpenSettle(liveRace)}
-                            className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-slate-950 font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-xl shadow-amber-950/50 flex items-center justify-center gap-2 ring-2 ring-amber-400/40 active:scale-95"
-                          >
-                            <Trophy className="w-4 h-4 text-slate-950" />
-                            <span>🏆 END LIVE & SETTLE WINNERS</span>
-                          </button>
-                        </div>
                       </div>
                     );
                   })}

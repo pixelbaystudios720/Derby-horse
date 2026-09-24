@@ -344,11 +344,6 @@ export default function App() {
       if (freshUser) {
         setUser((prev) => {
           if (!prev) return freshUser;
-          if (freshUser.balance > prev.balance) {
-            const addedAmount = freshUser.balance - prev.balance;
-            soundManager.playWinPayout();
-            showToast(`🎉 ₹${addedAmount.toLocaleString('en-IN')} added to your wallet! New Balance: ₹${freshUser.balance.toLocaleString('en-IN')}`, 'success');
-          }
           try { localStorage.setItem('derby_user', JSON.stringify(freshUser)); } catch {}
           return JSON.stringify(prev) === JSON.stringify(freshUser) ? prev : freshUser;
         });
