@@ -2458,9 +2458,25 @@ app.post('/api/admin/races/:raceId/resume', async (req, res) => {
 
 // 5. SETTLE RACE & AUTO PAYOUT BETS (CORE REQUIREMENT - WITH DEAD HEAT SUPPORT)
 // Supports multi-horse dead heat for 1st, 2nd, and 3rd place with Method A (Betfair / Industry Standard) stake division, plus 4th position
-app.post('/api/admin/races/:id/settle', (req, res) => {
+app.post('/api/admin/races/:id/settle', async (req, res) => {
   const { position_1, position_2, position_3, position_4, winner_horse_id, place_horses_ids } = req.body;
-  const race = db.races.find((r) => r.id === req.params.id);
+  
+  try {
+    await ensureMongoConnected();
+  } catch (err) {
+    console.warn('MongoDB connection notice in settle:', err);
+  }
+
+  let race = db.races.find((r) => r.id === req.params.id);
+  if (!race) {
+    try {
+      const mongoRace = await RaceModel.findOne({ id: req.params.id }).lean().catch(() => null);
+      if (mongoRace) {
+        race = mongoRace as any;
+        db.races.push(race!);
+      }
+    } catch {}
+  }
   if (!race) return res.status(404).json({ error: 'Race not found' });
 
   // Determine positions array
@@ -2547,17 +2563,37 @@ app.post('/api/admin/races/:id/settle', (req, res) => {
   race.status = 'RESULTED';
   race.settled_at = new Date().toISOString();
 
-  // Find all pending bets for this race
-  const pendingBets = db.bets.filter((b) => (b.race_id === race.id || b.race_name === race.name) && b.status === 'PENDING');
+  // Find all pending bets for this race from MongoDB and memory
+  let mongoPendingBets: any[] = [];
+  try {
+    mongoPendingBets = await BetModel.find({
+      $or: [{ race_id: race.id }, { race_name: race.name }],
+      status: 'PENDING',
+    }).lean().catch(() => []);
+  } catch {}
+
+  const pendingBetsMap = new Map<string, any>();
+  db.bets
+    .filter((b) => (b.race_id === race.id || b.race_name === race.name) && b.status === 'PENDING')
+    .forEach((b) => pendingBetsMap.set(b.id, b));
+  (mongoPendingBets || []).forEach((b) => pendingBetsMap.set(b.id, b));
+
+  const pendingBets = Array.from(pendingBetsMap.values());
   let settledCount = 0;
   let totalPayout = 0;
 
+  const betUpdates: any[] = [];
+  const txCreates: any[] = [];
+  const notifCreates: any[] = [];
+  const userBalanceChanges = new Map<string, { deltaBalance: number; deltaExposure: number }>();
+
   for (const bet of pendingBets) {
-    const betUser = db.users.find((u) => u.id === bet.user_id);
     let isWon = false;
     let betPayout = 0;
     let betIsDeadHeat = false;
     let deadHeatDivider = 1;
+    const numStake = Number(bet.stake || bet.amount || 0);
+    const numOdds = Number(bet.odds || 1);
 
     if (bet.bet_type === 'WIN') {
       if (p1.includes(bet.horse_id)) {
@@ -2566,9 +2602,9 @@ app.post('/api/admin/races/:id/settle', (req, res) => {
           betIsDeadHeat = true;
           deadHeatDivider = p1.length;
           // Method A: Half Stake Win (Divide stake by N winners)
-          betPayout = Math.round((bet.stake / p1.length) * bet.odds);
+          betPayout = Math.round((numStake / p1.length) * numOdds);
         } else {
-          betPayout = Math.round(bet.stake * bet.odds);
+          betPayout = Math.round(numStake * numOdds);
         }
       }
     } else if (bet.bet_type === 'PLACE') {
@@ -2578,51 +2614,128 @@ app.post('/api/admin/races/:id/settle', (req, res) => {
         if (factor < 1.0) {
           betIsDeadHeat = true;
           deadHeatDivider = Math.round(1 / factor);
-          betPayout = Math.round((bet.stake * factor) * bet.odds);
+          betPayout = Math.round((numStake * factor) * numOdds);
         } else {
-          betPayout = Math.round(bet.stake * bet.odds);
+          betPayout = Math.round(numStake * numOdds);
         }
       }
     }
 
-    bet.settled_at = new Date().toISOString();
+    const settledAt = new Date().toISOString();
 
-    if (isWon) {
-      bet.status = 'WON';
-      bet.payout = betPayout;
-      bet.is_dead_heat = betIsDeadHeat;
-      bet.dead_heat_divider = betIsDeadHeat ? deadHeatDivider : undefined;
-      totalPayout += betPayout;
+    // In-memory bet sync
+    const memBet = db.bets.find((b) => b.id === bet.id);
+    if (memBet) {
+      memBet.settled_at = settledAt;
+      memBet.status = isWon ? 'WON' : 'LOST';
+      memBet.payout = isWon ? betPayout : 0;
+      memBet.is_dead_heat = betIsDeadHeat;
+      memBet.dead_heat_divider = betIsDeadHeat ? deadHeatDivider : undefined;
+    }
 
-      if (betUser) {
-        betUser.balance += betPayout;
-        betUser.exposure = Math.max(0, betUser.exposure - bet.stake);
+    betUpdates.push({
+      updateOne: {
+        filter: { id: bet.id },
+        update: {
+          $set: {
+            status: isWon ? 'WON' : 'LOST',
+            payout: isWon ? betPayout : 0,
+            is_dead_heat: betIsDeadHeat,
+            dead_heat_divider: betIsDeadHeat ? deadHeatDivider : undefined,
+            settled_at: settledAt,
+          },
+        },
+      },
+    });
+
+    const targetUserId = bet.user_id || bet.username;
+    if (targetUserId) {
+      if (!userBalanceChanges.has(targetUserId)) {
+        userBalanceChanges.set(targetUserId, { deltaBalance: 0, deltaExposure: 0 });
+      }
+      const uChange = userBalanceChanges.get(targetUserId)!;
+      uChange.deltaExposure -= numStake;
+
+      if (isWon && betPayout > 0) {
+        totalPayout += betPayout;
+        uChange.deltaBalance += betPayout;
 
         const winDesc = betIsDeadHeat 
-          ? `Payout WON (Dead Heat 1/${deadHeatDivider}): ${bet.bet_type} bet on #${bet.horse_no} ${bet.horse_name} in ${race.name} (₹${betPayout.toLocaleString('en-IN')})`
-          : `Payout WON: ${bet.bet_type} bet on #${bet.horse_no} ${bet.horse_name} in ${race.name} (Odds: ${bet.odds})`;
+          ? `Payout WON (Dead Heat 1/${deadHeatDivider}): ${bet.bet_type} bet on #${bet.horse_no || ''} ${bet.horse_name || ''} in ${race.name} (₹${betPayout.toLocaleString('en-IN')})`
+          : `Payout WON: ${bet.bet_type} bet on #${bet.horse_no || ''} ${bet.horse_name || ''} in ${race.name} (Odds: ${bet.odds})`;
 
         const winTx: Transaction = {
           id: generateId('tx'),
-          user_id: betUser.id,
-          username: betUser.username,
+          user_id: bet.user_id,
+          username: bet.username || 'user',
           type: 'WIN',
           amount: betPayout,
-          balance_after: betUser.balance,
+          balance_after: 0,
           description: winDesc,
-          created_at: new Date().toISOString(),
+          created_at: settledAt,
           reference_id: bet.id,
         };
         db.transactions.unshift(winTx);
-      }
-    } else {
-      bet.status = 'LOST';
-      bet.payout = 0;
-      if (betUser) {
-        betUser.exposure = Math.max(0, betUser.exposure - bet.stake);
+        txCreates.push(winTx);
+
+        // Instant user notification
+        notifCreates.push({
+          id: `notif_win_${bet.id}`,
+          user_id: bet.user_id,
+          type: 'WIN_PAYOUT',
+          title: '🏆 Bet WON! Payout Credited',
+          message: winDesc,
+          amount: betPayout,
+          is_read: false,
+          created_at: settledAt,
+          reference_id: bet.id,
+        });
       }
     }
+
     settledCount++;
+  }
+
+  // Update user balances in memory and MongoDB
+  for (const [uid, change] of userBalanceChanges.entries()) {
+    const memUser = db.users.find((u) => u.id === uid || u.username === uid);
+    if (memUser) {
+      memUser.balance = Math.max(0, (memUser.balance || 0) + change.deltaBalance);
+      memUser.exposure = Math.max(0, (memUser.exposure || 0) + change.deltaExposure);
+    }
+
+    try {
+      const mongoUser = await UserModel.findOne({ $or: [{ id: uid }, { username: uid }, { phone: uid }] });
+      if (mongoUser) {
+        const newBal = Math.max(0, (mongoUser.balance || 0) + change.deltaBalance);
+        const newExp = Math.max(0, (mongoUser.exposure || 0) + change.deltaExposure);
+        await UserModel.updateOne(
+          { _id: mongoUser._id },
+          { $set: { balance: newBal, exposure: newExp } }
+        );
+      }
+    } catch (err: any) {
+      console.warn('User balance sync error in settle:', err.message);
+    }
+  }
+
+  // Persist all changes to MongoDB
+  try {
+    await ensureMongoConnected();
+    if (betUpdates.length > 0) {
+      await BetModel.bulkWrite(betUpdates).catch(() => {});
+    }
+    if (txCreates.length > 0) {
+      await TransactionModel.insertMany(txCreates).catch(() => {});
+    }
+    if (notifCreates.length > 0) {
+      for (const notif of notifCreates) {
+        await NotificationModel.findOneAndUpdate({ id: notif.id }, notif, { upsert: true }).catch(() => {});
+      }
+    }
+    await RaceModel.findOneAndUpdate({ id: race.id }, race, { upsert: true, new: true }).catch(() => {});
+  } catch (err: any) {
+    console.warn('MongoDB race settle sync notice:', err.message);
   }
 
   saveDatabase();
@@ -2924,41 +3037,134 @@ app.post('/api/admin/users/:id/adjust-balance', async (req, res) => {
 });
 
 // 9. Admin Declare Race ABANDONED / VOID (100% Full Bet Refund)
-app.post('/api/admin/races/:id/abandon', (req, res) => {
-  const race = db.races.find((r) => r.id === req.params.id);
+app.post('/api/admin/races/:id/abandon', async (req, res) => {
+  try {
+    await ensureMongoConnected();
+  } catch (err) {
+    console.warn('MongoDB connection notice in abandon:', err);
+  }
+
+  let race = db.races.find((r) => r.id === req.params.id);
+  if (!race) {
+    try {
+      const mongoRace = await RaceModel.findOne({ id: req.params.id }).lean().catch(() => null);
+      if (mongoRace) {
+        race = mongoRace as any;
+        db.races.push(race!);
+      }
+    } catch {}
+  }
   if (!race) return res.status(404).json({ error: 'Race not found' });
   const { reason } = req.body;
   race.status = 'ABANDONED';
   race.is_suspended = true;
 
-  const pendingBets = db.bets.filter((b) => (b.race_id === race.id || b.race_name === race.name) && b.status === 'PENDING');
+  let mongoPendingBets: any[] = [];
+  try {
+    mongoPendingBets = await BetModel.find({
+      $or: [{ race_id: race.id }, { race_name: race.name }],
+      status: 'PENDING',
+    }).lean().catch(() => []);
+  } catch {}
+
+  const pendingBetsMap = new Map<string, any>();
+  db.bets
+    .filter((b) => (b.race_id === race.id || b.race_name === race.name) && b.status === 'PENDING')
+    .forEach((b) => pendingBetsMap.set(b.id, b));
+  (mongoPendingBets || []).forEach((b) => pendingBetsMap.set(b.id, b));
+
+  const pendingBets = Array.from(pendingBetsMap.values());
   let refundedCount = 0;
   let totalRefunded = 0;
 
+  const betUpdates: any[] = [];
+  const txCreates: any[] = [];
+  const userBalanceChanges = new Map<string, { deltaBalance: number; deltaExposure: number }>();
+
   for (const bet of pendingBets) {
-    bet.status = 'REFUNDED';
-    bet.settled_at = new Date().toISOString();
-    totalRefunded += bet.stake;
+    const numStake = Number(bet.stake || bet.amount || 0);
+    const settledAt = new Date().toISOString();
+
+    const memBet = db.bets.find((b) => b.id === bet.id);
+    if (memBet) {
+      memBet.status = 'REFUNDED';
+      memBet.settled_at = settledAt;
+    }
+
+    betUpdates.push({
+      updateOne: {
+        filter: { id: bet.id },
+        update: {
+          $set: {
+            status: 'REFUNDED',
+            settled_at: settledAt,
+          },
+        },
+      },
+    });
+
+    totalRefunded += numStake;
     refundedCount++;
 
-    const betUser = db.users.find((u) => u.id === bet.user_id);
-    if (betUser) {
-      betUser.balance += bet.stake;
-      betUser.exposure = Math.max(0, betUser.exposure - bet.stake);
+    const targetUserId = bet.user_id || bet.username;
+    if (targetUserId) {
+      if (!userBalanceChanges.has(targetUserId)) {
+        userBalanceChanges.set(targetUserId, { deltaBalance: 0, deltaExposure: 0 });
+      }
+      const uChange = userBalanceChanges.get(targetUserId)!;
+      uChange.deltaBalance += numStake;
+      uChange.deltaExposure -= numStake;
 
       const refTx: Transaction = {
         id: generateId('tx'),
-        user_id: betUser.id,
-        username: betUser.username,
+        user_id: bet.user_id,
+        username: bet.username || 'user',
         type: 'REFUND',
-        amount: bet.stake,
-        balance_after: betUser.balance,
-        description: `100% Refund for Cancelled/Abandoned Race: ${race.name} (#${bet.horse_no} ${bet.horse_name})`,
-        created_at: new Date().toISOString(),
+        amount: numStake,
+        balance_after: 0,
+        description: `100% Refund for Cancelled/Abandoned Race: ${race.name} (#${bet.horse_no || ''} ${bet.horse_name || ''})`,
+        created_at: settledAt,
         reference_id: bet.id,
       };
       db.transactions.unshift(refTx);
+      txCreates.push(refTx);
     }
+  }
+
+  // Update user balances
+  for (const [uid, change] of userBalanceChanges.entries()) {
+    const memUser = db.users.find((u) => u.id === uid || u.username === uid);
+    if (memUser) {
+      memUser.balance = Math.max(0, (memUser.balance || 0) + change.deltaBalance);
+      memUser.exposure = Math.max(0, (memUser.exposure || 0) + change.deltaExposure);
+    }
+
+    try {
+      const mongoUser = await UserModel.findOne({ $or: [{ id: uid }, { username: uid }, { phone: uid }] });
+      if (mongoUser) {
+        const newBal = Math.max(0, (mongoUser.balance || 0) + change.deltaBalance);
+        const newExp = Math.max(0, (mongoUser.exposure || 0) + change.deltaExposure);
+        await UserModel.updateOne(
+          { _id: mongoUser._id },
+          { $set: { balance: newBal, exposure: newExp } }
+        );
+      }
+    } catch (err: any) {
+      console.warn('User balance sync error in abandon:', err.message);
+    }
+  }
+
+  try {
+    await ensureMongoConnected();
+    if (betUpdates.length > 0) {
+      await BetModel.bulkWrite(betUpdates).catch(() => {});
+    }
+    if (txCreates.length > 0) {
+      await TransactionModel.insertMany(txCreates).catch(() => {});
+    }
+    await RaceModel.findOneAndUpdate({ id: race.id }, race, { upsert: true, new: true }).catch(() => {});
+  } catch (err: any) {
+    console.warn('MongoDB race abandon sync notice:', err.message);
   }
 
   saveDatabase();
@@ -2972,39 +3178,66 @@ app.post('/api/admin/races/:id/abandon', (req, res) => {
 });
 
 // 10. Admin Cancel Single Bet (Suspicious / Incorrect Bet 1-Click Refund)
-app.post('/api/admin/bets/:id/cancel', (req, res) => {
-  const bet = db.bets.find((b) => b.id === req.params.id);
+app.post('/api/admin/bets/:id/cancel', async (req, res) => {
+  try {
+    await ensureMongoConnected();
+  } catch {}
+
+  let bet = db.bets.find((b) => b.id === req.params.id);
+  if (!bet) {
+    try {
+      const mongoBet = await BetModel.findOne({ id: req.params.id }).lean().catch(() => null);
+      if (mongoBet) {
+        bet = mongoBet as any;
+        db.bets.push(bet!);
+      }
+    } catch {}
+  }
   if (!bet) return res.status(404).json({ error: 'Bet not found' });
   if (bet.status !== 'PENDING') {
     return res.status(400).json({ error: `Cannot cancel bet with status: ${bet.status}` });
   }
   const { reason } = req.body;
+  const settledAt = new Date().toISOString();
   bet.status = 'CANCELLED';
-  bet.settled_at = new Date().toISOString();
+  bet.settled_at = settledAt;
 
-  const betUser = db.users.find((u) => u.id === bet.user_id);
+  const numStake = Number(bet.stake || bet.amount || 0);
+  const targetUserId = bet.user_id || bet.username;
+  const betUser = db.users.find((u) => u.id === targetUserId || u.username === targetUserId);
   if (betUser) {
-    betUser.balance += bet.stake;
-    betUser.exposure = Math.max(0, betUser.exposure - bet.stake);
+    betUser.balance = Math.max(0, (betUser.balance || 0) + numStake);
+    betUser.exposure = Math.max(0, (betUser.exposure || 0) - numStake);
+  }
 
-    const cancelTx: Transaction = {
-      id: generateId('tx'),
-      user_id: betUser.id,
-      username: betUser.username,
-      type: 'REFUND',
-      amount: bet.stake,
-      balance_after: betUser.balance,
-      description: `Single Bet Cancelled by Admin: #${bet.horse_no} ${bet.horse_name} in ${bet.race_name} (${reason || 'Admin Void'})`,
-      created_at: new Date().toISOString(),
-      reference_id: bet.id,
-    };
-    db.transactions.unshift(cancelTx);
+  const cancelTx: Transaction = {
+    id: generateId('tx'),
+    user_id: bet.user_id,
+    username: bet.username || 'user',
+    type: 'REFUND',
+    amount: numStake,
+    balance_after: betUser ? betUser.balance : 0,
+    description: `Single Bet Cancelled by Admin: #${bet.horse_no || ''} ${bet.horse_name || ''} in ${bet.race_name} (${reason || 'Admin Void'})`,
+    created_at: settledAt,
+    reference_id: bet.id,
+  };
+  db.transactions.unshift(cancelTx);
+
+  try {
+    await ensureMongoConnected();
+    await Promise.all([
+      BetModel.updateOne({ id: bet.id }, { $set: { status: 'CANCELLED', settled_at: settledAt } }),
+      TransactionModel.create(cancelTx),
+      targetUserId ? UserModel.updateOne({ $or: [{ id: targetUserId }, { username: targetUserId }] }, { $inc: { balance: numStake, exposure: -numStake } }) : Promise.resolve(),
+    ]);
+  } catch (err: any) {
+    console.warn('MongoDB cancel bet notice:', err.message);
   }
 
   saveDatabase();
   return res.json({
     success: true,
-    message: `Bet #${bet.id} cancelled and ₹${bet.stake.toLocaleString('en-IN')} refunded to @${bet.username || 'user'}`,
+    message: `Bet #${bet.id} cancelled and ₹${numStake.toLocaleString('en-IN')} refunded to @${bet.username || 'user'}`,
     bet,
   });
 });
