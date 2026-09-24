@@ -881,13 +881,22 @@ export const api = {
   // NOTIFICATIONS ENGINE
   // ----------------------------------------------------------------------
   async getNotifications(userId: string): Promise<UserNotification[]> {
+    const rawRead = localStorage.getItem('derby_read_notification_ids');
+    const readIds = new Set<string>(rawRead ? JSON.parse(rawRead) : []);
+
     try {
       const res = await fetch(`${API_BASE}/notifications?user_id=${userId}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.notifications) && data.notifications.length > 0) {
-          localStorage.setItem('derby_user_notifications', JSON.stringify(data.notifications));
-          return data.notifications;
+          const synced = data.notifications.map((n: UserNotification) => {
+            if (readIds.has(n.id) || (n.reference_id && readIds.has(n.reference_id))) {
+              return { ...n, is_read: true };
+            }
+            return n;
+          });
+          localStorage.setItem('derby_user_notifications', JSON.stringify(synced));
+          return synced;
         }
       }
     } catch {}
@@ -898,30 +907,27 @@ export const api = {
       if (raw) localNotes = JSON.parse(raw);
     } catch {}
 
-    const userSpecificNotes = localNotes.filter(
-      (n) => n.user_id === userId || !n.user_id || n.user_id === 'all'
-    );
+    const userSpecificNotes = localNotes
+      .filter((n) => n.user_id === userId || !n.user_id || n.user_id === 'all')
+      .map((n) => {
+        if (readIds.has(n.id) || (n.reference_id && readIds.has(n.reference_id))) {
+          return { ...n, is_read: true };
+        }
+        return n;
+      });
 
     if (userSpecificNotes.length === 0) {
+      const welcomeBonusKey = `notif_welcome_${userId}_bonus`;
       const welcomeNotes: UserNotification[] = [
         {
-          id: `notif_welcome_${userId}_bonus`,
+          id: welcomeBonusKey,
           user_id: userId,
           type: 'DEPOSIT_APPROVED',
           title: '🎉 Welcome to DerbyBet Turf!',
           message: 'Welcome aboard! ₹50 complimentary sign-up bonus has been credited to your wallet balance. Start exploring live fixtures & placing selections!',
           amount: 50,
-          is_read: false,
+          is_read: readIds.has(welcomeBonusKey),
           created_at: new Date().toISOString(),
-        },
-        {
-          id: `notif_welcome_${userId}_guide`,
-          user_id: userId,
-          type: 'GENERAL',
-          title: '🏇 Live Turf Fixtures & Decimal Odds',
-          message: 'Explore live and upcoming races, view jockeys & win/place odds, and track your instant settlements and statements in real-time.',
-          is_read: false,
-          created_at: new Date(Date.now() - 60000).toISOString(),
         },
       ];
 
@@ -938,7 +944,11 @@ export const api = {
 
   async markNotificationRead(notificationId: string): Promise<void> {
     try {
-      await fetch(`${API_BASE}/notifications/${notificationId}/read`, { method: 'PUT' });
+      const rawRead = localStorage.getItem('derby_read_notification_ids');
+      const readIds = new Set<string>(rawRead ? JSON.parse(rawRead) : []);
+      readIds.add(notificationId);
+      localStorage.setItem('derby_read_notification_ids', JSON.stringify(Array.from(readIds)));
+
       const raw = localStorage.getItem('derby_user_notifications');
       if (raw) {
         const list: UserNotification[] = JSON.parse(raw);
@@ -946,26 +956,35 @@ export const api = {
         if (item) item.is_read = true;
         localStorage.setItem('derby_user_notifications', JSON.stringify(list));
       }
+
+      await fetch(`${API_BASE}/notifications/${notificationId}/read`, { method: 'PUT' });
     } catch {}
   },
 
   async markAllNotificationsRead(userId: string): Promise<void> {
     try {
+      const raw = localStorage.getItem('derby_user_notifications');
+      const list: UserNotification[] = raw ? JSON.parse(raw) : [];
+      const rawRead = localStorage.getItem('derby_read_notification_ids');
+      const readIds = new Set<string>(rawRead ? JSON.parse(rawRead) : []);
+
+      list.forEach((n) => {
+        if (n.user_id === userId || !n.user_id || n.user_id === 'all') {
+          n.is_read = true;
+          readIds.add(n.id);
+          if (n.reference_id) readIds.add(n.reference_id);
+        }
+      });
+      readIds.add(`notif_welcome_${userId}_bonus`);
+
+      localStorage.setItem('derby_read_notification_ids', JSON.stringify(Array.from(readIds)));
+      localStorage.setItem('derby_user_notifications', JSON.stringify(list));
+
       await fetch(`${API_BASE}/notifications/read-all`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId }),
       });
-      const raw = localStorage.getItem('derby_user_notifications');
-      if (raw) {
-        const list: UserNotification[] = JSON.parse(raw);
-        for (const item of list) {
-          if (item.user_id === userId || !item.user_id || item.user_id === 'all') {
-            item.is_read = true;
-          }
-        }
-        localStorage.setItem('derby_user_notifications', JSON.stringify(list));
-      }
     } catch {}
   },
 

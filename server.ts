@@ -3990,9 +3990,9 @@ app.put('/api/notifications/read-all', async (req, res) => {
     try {
       await ensureMongoConnected();
       const matchedUser = await UserModel.findOne({
-        $or: [{ id: user_id }, { username: user_id }, { mobile: user_id }],
+        $or: [{ id: user_id }, { username: user_id }, { mobile: user_id }, { phone: user_id }],
       }).lean();
-      const userIds = matchedUser ? [matchedUser.id, matchedUser.username, matchedUser.mobile] : [user_id];
+      const userIds = matchedUser ? [matchedUser.id, matchedUser.username, matchedUser.mobile, matchedUser.phone].filter(Boolean) : [user_id];
 
       if (db.notifications) {
         db.notifications.forEach((n: any) => {
@@ -4003,14 +4003,40 @@ app.put('/api/notifications/read-all', async (req, res) => {
 
       await NotificationModel.updateMany({ user_id: { $in: userIds } }, { $set: { is_read: true } });
 
-      // Upsert common synthesized keys as read
-      const welcomeKey = `notif_welcome_${user_id}_bonus`;
-      await NotificationModel.findOneAndUpdate(
-        { id: welcomeKey },
-        { $set: { id: welcomeKey, user_id, is_read: true, title: '🎉 Welcome to DerbyBet Turf!', type: 'DEPOSIT_APPROVED' } },
-        { upsert: true }
-      );
-    } catch {}
+      // 1. Mark all deposit request notifications as read
+      const userDeps = await DepositRequestModel.find({ user_id: { $in: userIds } }).lean().catch(() => []);
+      for (const dep of userDeps) {
+        const depKey = `notif_dep_${dep.id}`;
+        await NotificationModel.findOneAndUpdate(
+          { id: depKey },
+          { $set: { id: depKey, user_id, is_read: true, reference_id: dep.utr_number || dep.id, type: 'DEPOSIT_APPROVED', created_at: dep.created_at || new Date().toISOString() } },
+          { upsert: true }
+        );
+      }
+
+      // 2. Mark all withdrawal request notifications as read
+      const userWths = await WithdrawalRequestModel.find({ user_id: { $in: userIds } }).lean().catch(() => []);
+      for (const wth of userWths) {
+        const wthKey = `notif_wth_${wth.id}`;
+        await NotificationModel.findOneAndUpdate(
+          { id: wthKey },
+          { $set: { id: wthKey, user_id, is_read: true, reference_id: wth.id, type: 'WITHDRAWAL_SUCCESSFUL', created_at: wth.created_at || new Date().toISOString() } },
+          { upsert: true }
+        );
+      }
+
+      // 3. Mark welcome notifications as read
+      for (const uid of userIds) {
+        const welcomeKey = `notif_welcome_${uid}_bonus`;
+        await NotificationModel.findOneAndUpdate(
+          { id: welcomeKey },
+          { $set: { id: welcomeKey, user_id: uid, is_read: true, title: '🎉 Welcome to DerbyBet Turf!', type: 'DEPOSIT_APPROVED', created_at: new Date().toISOString() } },
+          { upsert: true }
+        );
+      }
+    } catch (err: any) {
+      console.error('Error in read-all notifications:', err);
+    }
   }
   return res.json({ success: true });
 });
