@@ -292,19 +292,16 @@ export const api = {
   async getMe(userId?: string): Promise<User | null> {
     try {
       const token = localStorage.getItem('derby_token') || '';
-      const query = userId ? `?user_id=${userId}` : '';
+      const query = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
       const res = await fetch(`${API_BASE}/auth/me${query}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const data = await res.json();
         if (data.user) {
-          localStorage.setItem('derby_user', JSON.stringify(data.user));
+          try { localStorage.setItem('derby_user', JSON.stringify(data.user)); } catch {}
           return data.user;
         }
-      } else {
-        localStorage.removeItem('derby_token');
-        localStorage.removeItem('derby_user');
       }
     } catch (e) {
       console.warn('API getMe failed', e);

@@ -1266,7 +1266,8 @@ app.post("/api/auth/login", async (req, res) => {
 });
 app.get("/api/auth/me", async (req, res) => {
   const authHeader = req.headers.authorization || "";
-  const userId = req.query.user_id || authHeader.replace("Bearer token_", "");
+  const rawId = req.query.user_id || authHeader.replace("Bearer token_", "");
+  const userId = (rawId || "").trim();
   if (userId === "usr_admin") {
     const adminProfile = {
       id: "usr_admin",
@@ -1284,15 +1285,34 @@ app.get("/api/auth/me", async (req, res) => {
     };
     return res.json({ success: true, user: adminProfile });
   }
-  let user = db.users.find((u) => u.id === userId);
-  if (!user) {
-    await ensureMongoConnected();
-    const mongoUser = await UserModel.findOne({ id: userId }).lean();
-    if (mongoUser) {
-      user = mongoUser;
-      if (!db.users.find((u) => u.id === user.id)) db.users.push(user);
-    }
+  if (!userId) {
+    return res.status(401).json({ error: "User ID or authorization token required" });
   }
+  try {
+    await ensureMongoConnected();
+    const mongoUser = await UserModel.findOne({
+      $or: [
+        { id: userId },
+        { username: userId },
+        { phone: userId },
+        { ref_id: userId },
+        { email: userId }
+      ]
+    }).lean();
+    if (mongoUser) {
+      const freshUser = mongoUser;
+      const idx = db.users.findIndex((u) => u.id === freshUser.id || u.username === freshUser.username);
+      if (idx >= 0) db.users[idx] = freshUser;
+      else db.users.push(freshUser);
+      const { password_hash: password_hash2, ...userProfile2 } = freshUser;
+      return res.json({ success: true, user: userProfile2 });
+    }
+  } catch (err) {
+    console.warn("Mongo auth/me lookup notice:", err.message);
+  }
+  const user = db.users.find(
+    (u) => u.id === userId || u.username === userId || u.phone === userId || u.ref_id === userId || u.email && u.email.toLowerCase() === userId.toLowerCase()
+  );
   if (!user) {
     return res.status(401).json({ error: "User not found or unauthenticated" });
   }
@@ -3099,40 +3119,67 @@ app.post("/api/admin/deposits/:id/approve", async (req, res) => {
     reqItem.status = "APPROVED";
     reqItem.reviewed_at = (/* @__PURE__ */ new Date()).toISOString();
     if (adminNotes) reqItem.admin_notes = adminNotes;
-    let user = db.users.find((u) => u.id === reqItem.user_id);
-    if (!user) {
-      const mongoUser = await UserModel.findOne({ id: reqItem.user_id }).lean().catch(() => null);
-      if (mongoUser) {
-        user = mongoUser;
-        db.users.push(user);
-      }
+    let user = db.users.find((u) => u.id === reqItem.user_id || u.username === reqItem.username);
+    const mongoUser = await UserModel.findOne({
+      $or: [
+        { id: reqItem.user_id },
+        { username: reqItem.username },
+        { phone: reqItem.user_id },
+        { ref_id: reqItem.user_id }
+      ]
+    }).lean().catch(() => null);
+    if (mongoUser) {
+      user = mongoUser;
+      const idx = db.users.findIndex((u) => u.id === user.id || u.username === user.username);
+      if (idx >= 0) db.users[idx] = user;
+      else db.users.push(user);
     }
+    const depositAmt = Number(reqItem.amount) || 0;
     if (user) {
-      user.balance = (user.balance || 0) + Number(reqItem.amount);
-      await UserModel.findOneAndUpdate({ id: user.id }, { balance: user.balance }, { new: true }).catch(() => {
+      user.balance = (Number(user.balance) || 0) + depositAmt;
+      await UserModel.findOneAndUpdate(
+        { $or: [{ id: user.id }, { username: user.username }, { phone: user.phone }] },
+        { $set: { balance: user.balance } },
+        { new: true }
+      ).catch(() => {
       });
     }
     const newTx = {
       id: `tx_${Date.now()}_dep`,
-      user_id: reqItem.user_id,
+      user_id: user ? user.id : reqItem.user_id,
       username: reqItem.username,
       type: "DEPOSIT",
-      amount: reqItem.amount,
-      balance_after: user ? user.balance : reqItem.amount,
+      amount: depositAmt,
+      balance_after: user ? user.balance : depositAmt,
       description: `Deposit Approved via ${reqItem.payment_method} (UTR: ${reqItem.utr_number})`,
       created_at: (/* @__PURE__ */ new Date()).toISOString(),
       reference_id: reqItem.id
     };
     db.transactions.unshift(newTx);
+    const newNotif = {
+      id: `notif_${Date.now()}_dep`,
+      user_id: user ? user.id : reqItem.user_id,
+      title: "\u{1F389} Deposit Approved & Credited!",
+      message: `Your deposit of \u20B9${depositAmt.toLocaleString("en-IN")} has been approved and added to your wallet! New Balance: \u20B9${user ? user.balance.toLocaleString("en-IN") : depositAmt.toLocaleString("en-IN")}`,
+      type: "DEPOSIT_APPROVED",
+      amount: depositAmt,
+      reference_id: reqItem.utr_number || reqItem.id,
+      is_read: false,
+      created_at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    if (!db.notifications) db.notifications = [];
+    db.notifications.unshift(newNotif);
     saveDatabase();
     await DepositRequestModel.findOneAndUpdate({ id: reqItem.id }, reqItem, { new: true }).catch(() => {
     });
     await TransactionModel.findOneAndUpdate({ id: newTx.id }, newTx, { upsert: true, new: true }).catch(() => {
     });
+    await NotificationModel.findOneAndUpdate({ id: newNotif.id }, newNotif, { upsert: true, new: true }).catch(() => {
+    });
     const userProfile = user ? (({ password_hash, ...u }) => u)(user) : void 0;
     return res.json({
       success: true,
-      message: `Deposit of \u20B9${reqItem.amount.toLocaleString("en-IN")} approved! Balance credited automatically to @${reqItem.username}.`,
+      message: `Deposit of \u20B9${depositAmt.toLocaleString("en-IN")} approved! Balance credited automatically to @${reqItem.username}.`,
       user: userProfile,
       depositRequest: reqItem
     });

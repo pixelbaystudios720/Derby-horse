@@ -327,7 +327,7 @@ export default function App() {
     }
 
     try {
-      if (!isBackground) {
+      if (!isBackground && myBets.length === 0) {
         setIsLoadingBets(true);
         setIsLoadingTxs(true);
       }
@@ -342,12 +342,16 @@ export default function App() {
       setMyBets((prev) => (JSON.stringify(prev) === JSON.stringify(betsData) ? prev : betsData));
       setTransactions((prev) => (JSON.stringify(prev) === JSON.stringify(txsData) ? prev : txsData));
       if (freshUser) {
-        if (user && freshUser.balance > user.balance) {
-          const addedAmount = freshUser.balance - user.balance;
-          soundManager.playWinPayout();
-          showToast(`🎉 ₹${addedAmount.toLocaleString('en-IN')} added to your wallet! New Balance: ₹${freshUser.balance.toLocaleString('en-IN')}`, 'success');
-        }
-        setUser((prev) => (JSON.stringify(prev) === JSON.stringify(freshUser) ? prev : freshUser));
+        setUser((prev) => {
+          if (!prev) return freshUser;
+          if (freshUser.balance > prev.balance) {
+            const addedAmount = freshUser.balance - prev.balance;
+            soundManager.playWinPayout();
+            showToast(`🎉 ₹${addedAmount.toLocaleString('en-IN')} added to your wallet! New Balance: ₹${freshUser.balance.toLocaleString('en-IN')}`, 'success');
+          }
+          try { localStorage.setItem('derby_user', JSON.stringify(freshUser)); } catch {}
+          return JSON.stringify(prev) === JSON.stringify(freshUser) ? prev : freshUser;
+        });
       }
       setNotifications((prev) => (JSON.stringify(prev) === JSON.stringify(notifsData) ? prev : notifsData));
       setDepositRequests((prev) => (JSON.stringify(prev) === JSON.stringify(depData) ? prev : depData));
