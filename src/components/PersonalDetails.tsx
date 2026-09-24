@@ -109,12 +109,12 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
     return result;
   }, [transactions]);
 
-  const totalStake = bets.reduce((acc, b) => acc + b.stake, 0);
-  const totalPayout = bets.reduce((acc, b) => acc + (b.payout || 0), 0);
-  const wonCount = bets.filter((b) => b.status === 'WON').length;
-  const pendingCount = bets.filter((b) => b.status === 'PENDING').length;
+  const totalStake = (bets || []).reduce((acc, b) => acc + (b?.stake || 0), 0);
+  const totalPayout = (bets || []).reduce((acc, b) => acc + (b?.payout || 0), 0);
+  const wonCount = (bets || []).filter((b) => b?.status === 'WON').length;
+  const pendingCount = (bets || []).filter((b) => b?.status === 'PENDING').length;
   const withdrawTxs = uniqueTransactions.filter((t) => t.type === 'WITHDRAW');
-  const totalWithdrawals = withdrawTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
+  const totalWithdrawals = withdrawTxs.reduce((acc, t) => acc + Math.abs(t.amount || 0), 0);
 
   // User Credentials
   const refId = user.ref_id || user.id || 'N/A';

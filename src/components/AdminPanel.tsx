@@ -2382,6 +2382,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     });
   };
 
+  const handleResetRacesKeepDeposits = () => {
+    requestConfirm({
+      title: '⚡ Clean Slate (Wipe Races & Winnings, Keep Deposits)',
+      message: 'Are you sure you want to delete all live, completed, and draft matches, and wipe all winnings?\n\nUsers will keep their original approved deposit balance (₹5,000 / ₹10,000) so you can test match creation, opening betting, and live settlements from scratch.',
+      confirmText: 'Yes, Reset Matches & Winnings',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          setIsLoading(true);
+          const res = await api.resetRacesKeepDeposits();
+          await onRefreshData();
+          await loadAdminData();
+          setActionMessage(res.message || 'All matches and winnings wiped. User deposits preserved!');
+          setTimeout(() => setActionMessage(null), 4000);
+        } catch (err: any) {
+          setActionMessage(err.message || 'Failed to reset matches');
+          setTimeout(() => setActionMessage(null), 3500);
+        } finally {
+          setIsLoading(false);
+        }
+      },
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Admin Top Header */}
@@ -2409,7 +2433,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          <button
+            id="admin-reset-races-btn"
+            type="button"
+            onClick={handleResetRacesKeepDeposits}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-white text-xs font-bold border border-amber-500/30 transition cursor-pointer active:scale-95"
+            title="Wipe all matches and winnings, preserve user deposited balance"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+            <span>⚡ Reset Races (Keep Deposits)</span>
+          </button>
+
           <button
             id="admin-reset-demo-btn"
             onClick={handleResetDemo}

@@ -3350,6 +3350,60 @@ app.post(["/api/admin/reset-demo", "/api/admin/reset-database", "/api/admin/clea
   saveDatabase();
   return res.json({ success: true, message: "Platform database successfully wiped and reset to clean initial state!" });
 });
+app.post("/api/admin/reset-races-keep-deposits", async (req, res) => {
+  try {
+    await ensureMongoConnected();
+    await RaceModel.deleteMany({});
+    await BetModel.deleteMany({});
+    await TransactionModel.deleteMany({
+      type: { $in: ["WIN", "BET", "PAYOUT", "LOST", "REFUND"] }
+    });
+    try {
+      await NotificationModel.deleteMany({
+        type: { $in: ["WIN_PAYOUT", "BET_SETTLED", "DEAD_HEAT_PAYOUT"] }
+      });
+    } catch {
+    }
+    const allUsers = await UserModel.find({ role: { $ne: "admin" } }).lean();
+    const allApprovedDeposits = await DepositRequestModel.find({ status: "APPROVED" }).lean();
+    for (const user of allUsers) {
+      const userDeps = allApprovedDeposits.filter(
+        (d) => d.user_id === user.id || d.username === user.username
+      );
+      const depTotal = userDeps.reduce((sum, d) => sum + (d.amount || 0), 0);
+      const finalBalance = depTotal > 0 ? depTotal + 50 : 50;
+      await UserModel.updateOne(
+        { id: user.id },
+        {
+          $set: {
+            balance: finalBalance,
+            exposure: 0
+          }
+        }
+      );
+    }
+  } catch (err) {
+    console.warn("MongoDB reset races error:", err.message);
+  }
+  db.races = [];
+  db.bets = [];
+  db.transactions = (db.transactions || []).filter((t) => t.type === "DEPOSIT");
+  db.users.forEach((u) => {
+    if (u.role !== "admin" && u.username !== "admin") {
+      const uDeps = (db.deposit_requests || []).filter(
+        (d) => (d.user_id === u.id || d.username === u.username) && d.status === "APPROVED"
+      );
+      const depTotal = uDeps.reduce((sum, d) => sum + (d.amount || 0), 0);
+      u.balance = depTotal > 0 ? depTotal + 50 : 50;
+      u.exposure = 0;
+    }
+  });
+  saveDatabase();
+  return res.json({
+    success: true,
+    message: "All matches, bets, and winnings removed. User accounts reset to deposited amounts!"
+  });
+});
 app.get("/api/wallet/transactions", async (req, res) => {
   try {
     const { user_id } = req.query;

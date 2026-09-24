@@ -2737,6 +2737,46 @@ export const api = {
     return { success: true };
   },
 
+  async resetRacesKeepDeposits(): Promise<{ success: boolean; message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/admin/reset-races-keep-deposits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Clear local storage races and bets
+        localStorage.removeItem('derby_custom_races');
+        localStorage.removeItem('derby_custom_bets');
+        // Filter local transactions to keep only deposits
+        let localTxs: Transaction[] = [];
+        try {
+          const raw = localStorage.getItem('derby_custom_txs');
+          if (raw) localTxs = JSON.parse(raw);
+        } catch {}
+        const cleanTxs = localTxs.filter((t) => t.type === 'DEPOSIT');
+        localStorage.setItem('derby_custom_txs', JSON.stringify(cleanTxs));
+        return data;
+      }
+    } catch {}
+
+    // Fallback local cleanup
+    localStorage.removeItem('derby_custom_races');
+    localStorage.removeItem('derby_custom_bets');
+    let localTxs: Transaction[] = [];
+    try {
+      const raw = localStorage.getItem('derby_custom_txs');
+      if (raw) localTxs = JSON.parse(raw);
+    } catch {}
+    const cleanTxs = localTxs.filter((t) => t.type === 'DEPOSIT');
+    localStorage.setItem('derby_custom_txs', JSON.stringify(cleanTxs));
+
+    return {
+      success: true,
+      message: 'All matches, bets, and winnings removed. User accounts reset to deposited amounts!',
+    };
+  },
+
   async resetDemo(): Promise<void> {
     try {
       await fetch(`${API_BASE}/admin/clean-reset`, { method: 'POST' });
