@@ -92,11 +92,28 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
     );
   }
 
+  // Deduplicate transactions: ensure only 1 transaction per bet/reference_id and unique ID
+  const uniqueTransactions = React.useMemo(() => {
+    const seen = new Set<string>();
+    const result: Transaction[] = [];
+    (transactions || []).forEach((tx) => {
+      if (!tx) return;
+      const dedupeKey = tx.reference_id && (tx.type === 'WIN' || tx.type === 'BET' || tx.type === 'REFUND')
+        ? `${tx.type}_${tx.reference_id}`
+        : tx.id || `${tx.type}_${tx.amount}_${tx.description}`;
+      if (!seen.has(dedupeKey)) {
+        seen.add(dedupeKey);
+        result.push(tx);
+      }
+    });
+    return result;
+  }, [transactions]);
+
   const totalStake = bets.reduce((acc, b) => acc + b.stake, 0);
   const totalPayout = bets.reduce((acc, b) => acc + (b.payout || 0), 0);
   const wonCount = bets.filter((b) => b.status === 'WON').length;
   const pendingCount = bets.filter((b) => b.status === 'PENDING').length;
-  const withdrawTxs = transactions.filter((t) => t.type === 'WITHDRAW');
+  const withdrawTxs = uniqueTransactions.filter((t) => t.type === 'WITHDRAW');
   const totalWithdrawals = withdrawTxs.reduce((acc, t) => acc + Math.abs(t.amount), 0);
 
   // User Credentials
@@ -470,9 +487,9 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
           >
             <FileText className="w-3.5 h-3.5" />
             <span>Statement Ledger</span>
-            {transactions.length > 0 && (
+            {uniqueTransactions.length > 0 && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-300">
-                {transactions.length}
+                {uniqueTransactions.length}
               </span>
             )}
           </button>
@@ -759,7 +776,7 @@ export const PersonalDetails: React.FC<PersonalDetailsProps> = ({
 
         {/* ---------------- SUB-TAB 3: WALLET STATEMENT LEDGER ---------------- */}
         {financialTab === 'transactions' && (() => {
-          const userTransactions = (transactions || []).filter(
+          const userTransactions = (uniqueTransactions || []).filter(
             (tx) => tx && (tx.user_id === user.id || tx.username === user.username)
           );
 

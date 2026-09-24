@@ -37,6 +37,23 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
   const [activeTab, setActiveTab] = useState<'all' | 'deposits' | 'withdrawals'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Strict deduplication of transactions
+  const uniqueTransactions = React.useMemo(() => {
+    const seen = new Set<string>();
+    const result: Transaction[] = [];
+    (transactions || []).forEach((tx) => {
+      if (!tx) return;
+      const dedupeKey = tx.reference_id && (tx.type === 'WIN' || tx.type === 'BET' || tx.type === 'REFUND')
+        ? `${tx.type}_${tx.reference_id}`
+        : tx.id || `${tx.type}_${tx.amount}_${tx.description}`;
+      if (!seen.has(dedupeKey)) {
+        seen.add(dedupeKey);
+        result.push(tx);
+      }
+    });
+    return result;
+  }, [transactions]);
+
   if (!isOpen) return null;
 
   const handleCopy = (text: string, id: string) => {
@@ -88,7 +105,7 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
             <Layers className="w-3.5 h-3.5" />
             <span>All Transactions</span>
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-900 text-slate-300">
-              {transactions.length}
+              {uniqueTransactions.length}
             </span>
           </button>
 
@@ -331,13 +348,13 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
                 );
               })
             )
-          ) : transactions.length === 0 ? (
+          ) : uniqueTransactions.length === 0 ? (
             <div className="text-center py-16 bg-[#040805] rounded-2xl p-6 border border-emerald-950">
               <FileText className="w-10 h-10 text-slate-600 mx-auto mb-2" />
               <p className="text-sm font-semibold text-slate-400">No transactions recorded yet</p>
             </div>
           ) : (
-            transactions.map((tx) => {
+            uniqueTransactions.map((tx) => {
               const isPositive = tx.amount > 0;
               return (
                 <div

@@ -1682,19 +1682,48 @@ export const api = {
       if (raw) localTxs = JSON.parse(raw);
     } catch {}
 
+    let combined: Transaction[] = [];
     try {
       const res = await fetch(`${API_BASE}/wallet/transactions?user_id=${userId}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.transactions) && data.transactions.length > 0) {
-          return [...localTxs, ...data.transactions.filter((t: Transaction) => !localTxs.some((lt) => lt.id === t.id))];
+          combined = [...data.transactions, ...localTxs];
         }
       }
     } catch {}
 
-    if (localTxs.length > 0) return localTxs;
+    if (combined.length === 0) {
+      combined = localTxs;
+    }
 
-    return [];
+    // Strict deduplication:
+    // 1. If reference_id is present (e.g. for WIN/REFUND/BET), allow only 1 transaction per type + reference_id
+    // 2. Otherwise deduplicate by ID and matching description + amount + approximate timestamp
+    const seenTxKeys = new Set<string>();
+    const deduplicated: Transaction[] = [];
+
+    for (const tx of combined) {
+      if (!tx) continue;
+      const dedupeKey = tx.reference_id && (tx.type === 'WIN' || tx.type === 'BET' || tx.type === 'REFUND')
+        ? `${tx.type}_${tx.reference_id}`
+        : tx.id || `${tx.type}_${tx.amount}_${tx.description}`;
+
+      if (!seenTxKeys.has(dedupeKey)) {
+        seenTxKeys.add(dedupeKey);
+        deduplicated.push(tx);
+      }
+    }
+
+    // Sort newest first
+    deduplicated.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+    // Clean up local storage so duplicate records are permanently cleared
+    try {
+      localStorage.setItem('derby_custom_txs', JSON.stringify(deduplicated));
+    } catch {}
+
+    return deduplicated;
   },
 
   // Banners
@@ -2408,21 +2437,24 @@ export const api = {
           currentUser.balance = (currentUser.balance ?? 0) + payoutAmount;
           currentUser.exposure = Math.max(0, (currentUser.exposure ?? 0) - bet.stake);
 
-          const winDesc = betIsDeadHeat
-            ? `Payout WON (Dead Heat 1/${deadHeatDivider}): ${bet.bet_type} bet on #${bet.horse_no} ${bet.horse_name} in ${race?.name || bet.race_name} (₹${payoutAmount.toLocaleString('en-IN')})`
-            : `Payout WON: ${bet.bet_type} bet on #${bet.horse_no} ${bet.horse_name} in ${race?.name || bet.race_name} (${bet.odds}x)`;
-
-          // Log WIN transaction
-          localTxs.unshift({
-            id: `tx_${Date.now()}_${bet.id}`,
-            user_id: bet.user_id,
-            type: 'WIN',
-            amount: payoutAmount,
-            balance_after: currentUser.balance,
-            description: winDesc,
-            created_at: new Date().toISOString(),
-            reference_id: bet.id,
-          });
+          // Log WIN transaction (only if not already recorded)
+          const existingTxIdx = localTxs.findIndex((t) => t.reference_id === bet.id && t.type === 'WIN');
+          if (existingTxIdx >= 0) {
+            localTxs[existingTxIdx].amount = payoutAmount;
+            localTxs[existingTxIdx].balance_after = currentUser.balance;
+            localTxs[existingTxIdx].description = winDesc;
+          } else {
+            localTxs.unshift({
+              id: `tx_${Date.now()}_${bet.id}`,
+              user_id: bet.user_id,
+              type: 'WIN',
+              amount: payoutAmount,
+              balance_after: currentUser.balance,
+              description: winDesc,
+              created_at: new Date().toISOString(),
+              reference_id: bet.id,
+            });
+          }
         } else {
           bet.status = 'LOST';
           bet.payout = 0;
@@ -2514,16 +2546,24 @@ export const api = {
         currentUser.balance = (currentUser.balance ?? 0) + bet.stake;
         currentUser.exposure = Math.max(0, (currentUser.exposure ?? 0) - bet.stake);
 
-        localTxs.unshift({
-          id: `tx_${Date.now()}_${bet.id}`,
-          user_id: bet.user_id,
-          type: 'REFUND',
-          amount: bet.stake,
-          balance_after: currentUser.balance,
-          description: `100% Refund for Cancelled/Abandoned Race #${raceId}: #${bet.horse_no} ${bet.horse_name} (${reason || 'Track Unfit / Abandoned'})`,
-          created_at: new Date().toISOString(),
-          reference_id: bet.id,
-        });
+        const refundDesc = `100% Refund for Cancelled/Abandoned Race #${raceId}: #${bet.horse_no} ${bet.horse_name} (${reason || 'Track Unfit / Abandoned'})`;
+        const existingTxIdx = localTxs.findIndex((t) => t.reference_id === bet.id && t.type === 'REFUND');
+        if (existingTxIdx >= 0) {
+          localTxs[existingTxIdx].amount = bet.stake;
+          localTxs[existingTxIdx].balance_after = currentUser.balance;
+          localTxs[existingTxIdx].description = refundDesc;
+        } else {
+          localTxs.unshift({
+            id: `tx_${Date.now()}_${bet.id}`,
+            user_id: bet.user_id,
+            type: 'REFUND',
+            amount: bet.stake,
+            balance_after: currentUser.balance,
+            description: refundDesc,
+            created_at: new Date().toISOString(),
+            reference_id: bet.id,
+          });
+        }
       }
     }
 
