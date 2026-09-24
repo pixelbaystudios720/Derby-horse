@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api, financialSync } from '../services/api';
 import { soundManager } from '../utils/audio';
 import { getRaceBettingCloseStatus, formatAutoCloseTime } from '../utils/raceTiming';
-import { Banner, Bet, Horse, Race, RaceCenter, RaceDay, RaceStatus, User, DepositRequest, WithdrawalRequest, DepositStatus, WithdrawalStatus } from '../types';
+import { Banner, Bet, Horse, Race, RaceCenter, RaceDay, RaceStatus, User, DepositRequest, WithdrawalRequest, DepositStatus, WithdrawalStatus, Transaction } from '../types';
 import {
   Shield,
   Trophy,
@@ -132,6 +132,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [addUserModalOpen, setAddUserModalOpen] = useState<boolean>(false);
   const [newUserData, setNewUserData] = useState({ full_name: '', username: '', phone: '', email: '', password: '', initial_balance: '0' });
   const [viewBetsUser, setViewBetsUser] = useState<User | null>(null);
+  const [viewLedgerUser, setViewLedgerUser] = useState<User | null>(null);
+  const [ledgerTransactions, setLedgerTransactions] = useState<Transaction[]>([]);
+  const [isLoadingLedger, setIsLoadingLedger] = useState<boolean>(false);
   const [oddsHistoryModalHorse, setOddsHistoryModalHorse] = useState<{ horse: Horse; race: Race } | null>(null);
   const [quickAddHorseRace, setQuickAddHorseRace] = useState<Race | null>(null);
   const [quickHorseData, setQuickHorseData] = useState({ name: '', jockey: '', trainer: '', gate_no: '', horse_no: '', win_odds: '2.50', place_odds: '1.40' });
@@ -920,6 +923,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setTimeout(() => setActionMessage(null), 3500);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleOpenUserLedger = async (targetUser: User) => {
+    setViewLedgerUser(targetUser);
+    setIsLoadingLedger(true);
+    soundManager.playClick();
+    try {
+      const txs = await api.getTransactions(targetUser.id);
+      setLedgerTransactions(txs || []);
+    } catch {
+      setLedgerTransactions([]);
+    } finally {
+      setIsLoadingLedger(false);
     }
   };
 
@@ -5835,9 +5852,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <th className="py-3 px-3.5">User Profile & Unique ID</th>
                   <th className="py-3 px-3">Contact Details</th>
                   <th className="py-3 px-3 text-center">Status</th>
-                  <th className="py-3 px-3 text-right">Balance</th>
+                  <th className="py-3 px-3 text-right">Total Added (₹)</th>
+                  <th className="py-3 px-3 text-right">Withdrawn (₹)</th>
+                  <th className="py-3 px-3 text-right">Current Balance</th>
                   <th className="py-3 px-3 text-right">Exposure</th>
-                  <th className="py-3 px-3 text-center">History</th>
+                  <th className="py-3 px-3 text-center">Statement & Bets</th>
                   <th className="py-3 px-3.5 text-right">Admin Controls</th>
                 </tr>
               </thead>
@@ -5858,6 +5877,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   .map((u) => {
                     const displayUniqueId = u.ref_id || u.id;
                     const userBetCount = (allBets || []).filter(b => b.user_id === u.id).length;
+                    const userDeposited = u.total_deposited || (depositRequests || []).filter(d => (d.user_id === u.id || d.username === u.username) && d.status === 'APPROVED').reduce((s, d) => s + (d.amount || 0), 0);
+                    const userWithdrawn = u.total_withdrawn || (withdrawalRequests || []).filter(w => (w.user_id === u.id || w.username === u.username) && (w.status === 'SUCCESSFUL' || w.status === 'IN_PROGRESS')).reduce((s, w) => s + (w.amount || 0), 0);
                     return (
                       <tr key={u.id} className="hover:bg-slate-900/60 transition">
                         {/* Profile & Unique ID */}
@@ -5926,6 +5947,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           )}
                         </td>
 
+                        {/* Total Added (Deposits) */}
+                        <td className="py-3 px-3 text-right font-mono font-bold text-emerald-400 text-xs">
+                          {userDeposited > 0 ? `+₹${userDeposited.toLocaleString('en-IN')}` : '₹0'}
+                        </td>
+
+                        {/* Total Withdrawn */}
+                        <td className="py-3 px-3 text-right font-mono font-bold text-blue-400 text-xs">
+                          {userWithdrawn > 0 ? `-₹${userWithdrawn.toLocaleString('en-IN')}` : '₹0'}
+                        </td>
+
                         {/* Balance */}
                         <td className="py-3 px-3 text-right font-mono font-bold text-emerald-400 text-sm">
                           ₹{u.balance.toLocaleString('en-IN')}
@@ -5936,17 +5967,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           ₹{u.exposure.toLocaleString('en-IN')}
                         </td>
 
-                        {/* Bet History Trigger */}
+                        {/* Statement & Bet History Trigger */}
                         <td className="py-3 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => setViewBetsUser(u)}
-                            className="px-2 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 border border-indigo-500/40 text-[11px] font-bold font-mono transition cursor-pointer flex items-center gap-1 mx-auto"
-                            title="View all bets placed by this user"
-                          >
-                            <Coins className="w-3 h-3" />
-                            <span>{userBetCount} Bets</span>
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenUserLedger(u)}
+                              className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold font-mono transition cursor-pointer flex items-center gap-1"
+                              title="View full financial ledger & statement from database"
+                            >
+                              <FileText className="w-3 h-3" />
+                              <span>Statement</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setViewBetsUser(u)}
+                              className="px-2 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold font-mono transition cursor-pointer flex items-center gap-1"
+                              title="View all bets placed by this user"
+                            >
+                              <Coins className="w-3 h-3" />
+                              <span>{userBetCount} Bets</span>
+                            </button>
+                          </div>
                         </td>
 
                         {/* Actions */}
@@ -6208,6 +6250,143 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       No bets placed yet by this user.
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* USER FINANCIAL STATEMENT & DATABASE LEDGER MODAL */}
+          {viewLedgerUser && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-5xl p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-black">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                        <span>Database Financial Statement:</span>
+                        <span className="text-amber-400">@{viewLedgerUser.username}</span>
+                        {viewLedgerUser.full_name && <span className="text-slate-400 text-xs font-normal">({viewLedgerUser.full_name})</span>}
+                      </h3>
+                      <p className="text-xs text-slate-400 font-mono">
+                        Unique ID: <strong className="text-amber-300 font-bold">{viewLedgerUser.ref_id || viewLedgerUser.id}</strong> • Phone: <strong className="text-white">{viewLedgerUser.phone}</strong> {viewLedgerUser.email ? `• Email: ${viewLedgerUser.email}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setViewLedgerUser(null)}
+                    className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Summary KPI Cards */}
+                {(() => {
+                  const userDeposits = (depositRequests || []).filter(d => (d.user_id === viewLedgerUser.id || d.username === viewLedgerUser.username) && d.status === 'APPROVED');
+                  const userWithdrawals = (withdrawalRequests || []).filter(w => (w.user_id === viewLedgerUser.id || w.username === viewLedgerUser.username) && (w.status === 'SUCCESSFUL' || w.status === 'IN_PROGRESS'));
+                  const totalDeposited = viewLedgerUser.total_deposited || userDeposits.reduce((s, d) => s + (d.amount || 0), 0);
+                  const totalWithdrawn = viewLedgerUser.total_withdrawn || userWithdrawals.reduce((s, w) => s + (w.amount || 0), 0);
+                  const userBets = (allBets || []).filter(b => b.user_id === viewLedgerUser.id);
+                  const totalWagered = userBets.reduce((s, b) => s + (b.stake || (b as any).amount || 0), 0);
+                  const totalWon = userBets.filter(b => b.status === 'WON').reduce((s, b) => s + (b.payout || (b as any).payout_amount || 0), 0);
+                  const netCashflow = totalDeposited - totalWithdrawn;
+
+                  return (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono">
+                      <div className="bg-slate-950 p-3 rounded-2xl border border-emerald-500/30">
+                        <span className="text-[10px] text-slate-400 uppercase font-sans font-bold block">Total Money Added (Deposits)</span>
+                        <strong className="text-base text-emerald-400 font-black">₹{totalDeposited.toLocaleString('en-IN')}</strong>
+                        <span className="text-[10px] text-slate-500 block">{userDeposits.length} approved deposits</span>
+                      </div>
+                      <div className="bg-slate-950 p-3 rounded-2xl border border-blue-500/30">
+                        <span className="text-[10px] text-slate-400 uppercase font-sans font-bold block">Total Money Withdrawn</span>
+                        <strong className="text-base text-blue-400 font-black">₹{totalWithdrawn.toLocaleString('en-IN')}</strong>
+                        <span className="text-[10px] text-slate-500 block">{userWithdrawals.length} withdrawals</span>
+                      </div>
+                      <div className="bg-slate-950 p-3 rounded-2xl border border-amber-500/30">
+                        <span className="text-[10px] text-slate-400 uppercase font-sans font-bold block">Current Liquid Balance</span>
+                        <strong className="text-base text-amber-300 font-black">₹{viewLedgerUser.balance.toLocaleString('en-IN')}</strong>
+                        <span className="text-[10px] text-rose-400 block">Exposure: ₹{viewLedgerUser.exposure.toLocaleString('en-IN')}</span>
+                      </div>
+                      <div className="bg-slate-950 p-3 rounded-2xl border border-purple-500/30">
+                        <span className="text-[10px] text-slate-400 uppercase font-sans font-bold block">Net Platform Cashflow</span>
+                        <strong className={`text-base font-black ${netCashflow >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {netCashflow >= 0 ? `+₹${netCashflow.toLocaleString('en-IN')}` : `-₹${Math.abs(netCashflow).toLocaleString('en-IN')}`}
+                        </strong>
+                        <span className="text-[10px] text-slate-400 block">{userBets.length} Bets Placed</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Ledger & Transactions Table from Database */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Ledger Transactions History (Database Records)</span>
+                    </h4>
+                    {isLoadingLedger && <span className="text-xs text-amber-400 animate-pulse">Loading from database...</span>}
+                  </div>
+
+                  <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950 max-h-[350px]">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-slate-900 text-slate-400 uppercase font-bold text-[10px] border-b border-slate-800 sticky top-0">
+                          <th className="p-2.5">Date & Time</th>
+                          <th className="p-2.5">Type</th>
+                          <th className="p-2.5">Amount (₹)</th>
+                          <th className="p-2.5">Balance After</th>
+                          <th className="p-2.5">Reference ID</th>
+                          <th className="p-2.5">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 font-mono">
+                        {(ledgerTransactions || []).map((tx) => (
+                          <tr key={tx.id} className="hover:bg-slate-900/40">
+                            <td className="p-2.5 text-slate-400 text-[10px] whitespace-nowrap">
+                              {new Date(tx.created_at).toLocaleString('en-IN')}
+                            </td>
+                            <td className="p-2.5">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                tx.type === 'DEPOSIT' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' :
+                                tx.type === 'WITHDRAW' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' :
+                                tx.type === 'WIN' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
+                                tx.type === 'REFUND' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40' :
+                                'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                              }`}>
+                                {tx.type}
+                              </span>
+                            </td>
+                            <td className="p-2.5 font-bold">
+                              {tx.type === 'DEPOSIT' || tx.type === 'WIN' || tx.type === 'REFUND' ? (
+                                <span className="text-emerald-400">+₹{tx.amount.toLocaleString('en-IN')}</span>
+                              ) : (
+                                <span className="text-rose-400">-₹{tx.amount.toLocaleString('en-IN')}</span>
+                              )}
+                            </td>
+                            <td className="p-2.5 text-slate-300 font-semibold">
+                              ₹{(tx.balance_after || 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="p-2.5 text-slate-500 text-[10px]">
+                              {tx.reference_id || tx.id}
+                            </td>
+                            <td className="p-2.5 text-slate-300 font-sans text-xs">
+                              {tx.description}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {(ledgerTransactions || []).length === 0 && !isLoadingLedger && (
+                      <div className="p-6 text-center text-slate-500 text-xs">
+                        No financial transactions recorded in database for this user yet.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

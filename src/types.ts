@@ -40,6 +40,11 @@ export interface User {
   is_blocked?: boolean;
   profile_photo?: string;
   password_hash?: string;
+  total_deposited?: number;
+  total_withdrawn?: number;
+  total_wagered?: number;
+  total_won?: number;
+  net_pnl?: number;
   created_at: string;
 }
 
