@@ -2085,6 +2085,44 @@ app.get('/api/wallet/transactions', async (req, res) => {
 });
 
 // ----------------------------------------------------
+// NOTIFICATIONS APIS
+// ----------------------------------------------------
+
+app.get('/api/notifications', async (req, res) => {
+  try {
+    const { user_id } = req.query;
+    await ensureMongoConnected();
+    const query: any = {};
+    if (user_id) {
+      query.$or = [{ user_id: String(user_id) }, { user_id: 'all' }];
+    }
+    const mongoNotes = await NotificationModel.find(query).sort({ created_at: -1 }).limit(50).lean().catch(() => []);
+    if (mongoNotes && mongoNotes.length > 0) {
+      return res.json({ success: true, notifications: mongoNotes });
+    }
+    const notes = (db.notifications || []).filter((n) => !user_id || n.user_id === user_id || n.user_id === 'all');
+    return res.json({ success: true, notifications: notes });
+  } catch (err: any) {
+    return res.json({ success: true, notifications: db.notifications || [] });
+  }
+});
+
+app.post('/api/notifications/mark-read', async (req, res) => {
+  try {
+    const { notification_id, user_id } = req.body;
+    await ensureMongoConnected();
+    if (notification_id) {
+      await NotificationModel.updateOne({ id: notification_id }, { $set: { is_read: true } });
+    } else if (user_id) {
+      await NotificationModel.updateMany({ $or: [{ user_id }, { user_id: 'all' }] }, { $set: { is_read: true } });
+    }
+    return res.json({ success: true });
+  } catch {
+    return res.json({ success: true });
+  }
+});
+
+// ----------------------------------------------------
 // BANNERS APIS
 // ----------------------------------------------------
 
@@ -3885,102 +3923,102 @@ app.get('/api/deposits', async (req, res) => {
 app.post('/api/admin/deposits/:id/approve', async (req, res) => {
   try {
     await ensureMongoConnected();
-    if (!db.deposit_requests) db.deposit_requests = [];
-    let reqItem = db.deposit_requests.find((d) => d.id === req.params.id);
+    const { adminNotes } = req.body || {};
+
+    // 🔒 1. ATOMIC IDEMPOTENCY LOCK: Only allow state transition from PENDING -> APPROVED exactly ONCE!
+    let reqItem = await DepositRequestModel.findOneAndUpdate(
+      { id: req.params.id, status: { $ne: 'APPROVED' } },
+      {
+        $set: {
+          status: 'APPROVED',
+          reviewed_at: new Date().toISOString(),
+          admin_notes: adminNotes || undefined,
+        }
+      },
+      { new: true }
+    );
+
+    // If already approved in MongoDB, return early with no duplicate balance credit
     if (!reqItem) {
-      const mongoDep = await DepositRequestModel.findOne({ id: req.params.id }).lean().catch(() => null);
-      if (mongoDep) {
-        reqItem = mongoDep as any;
-        db.deposit_requests.unshift(reqItem!);
-      }
-    }
-    if (!reqItem) return res.status(404).json({ error: 'Deposit request not found' });
-
-    if (reqItem.status === 'APPROVED') {
-      return res.json({ success: true, message: 'Deposit request is already approved' });
-    }
-
-    const { adminNotes } = req.body;
-    reqItem.status = 'APPROVED';
-    reqItem.reviewed_at = new Date().toISOString();
-    if (adminNotes) reqItem.admin_notes = adminNotes;
-
-    // Robust user lookup (by ID, username, phone, ref_id)
-    let user = db.users.find((u) => u.id === reqItem!.user_id || u.username === reqItem!.username);
-    const mongoUser = await UserModel.findOne({
-      $or: [
-        { id: reqItem.user_id },
-        { username: reqItem.username },
-        { phone: reqItem.user_id },
-        { ref_id: reqItem.user_id },
-      ],
-    }).lean().catch(() => null);
-
-    if (mongoUser) {
-      user = mongoUser as any;
-      const idx = db.users.findIndex((u) => u.id === user!.id || u.username === user!.username);
-      if (idx >= 0) db.users[idx] = user!;
-      else db.users.push(user!);
+      const already = await DepositRequestModel.findOne({ id: req.params.id }).lean();
+      return res.json({
+        success: true,
+        message: 'Deposit request is already approved',
+        depositRequest: already,
+      });
     }
 
     const depositAmt = Number(reqItem.amount) || 0;
-    const targetFilter = user 
-      ? { $or: [{ id: user.id }, { username: user.username }, { phone: user.phone }] }
-      : { $or: [{ id: reqItem.user_id }, { username: reqItem.username }, { phone: reqItem.user_id }, { ref_id: reqItem.user_id }] };
+    const targetUserId = reqItem.user_id;
+    const targetUsername = reqItem.username;
 
+    // 🔒 2. ATOMIC USER BALANCE CREDIT (Only runs once!)
     const updatedUserDoc = await UserModel.findOneAndUpdate(
-      targetFilter,
+      { $or: [{ id: targetUserId }, { username: targetUsername }, { phone: targetUserId }, { ref_id: targetUserId }] },
       { $inc: { balance: depositAmt } },
       { new: true }
-    ).catch(() => null);
+    );
 
-    if (updatedUserDoc) {
-      user = updatedUserDoc as any;
-      const idx = db.users.findIndex((u) => u.id === user!.id || u.username === user!.username);
-      if (idx >= 0) db.users[idx] = user!;
-      else db.users.push(user!);
-    } else if (user) {
-      user.balance = (Number(user.balance) || 0) + depositAmt;
-    }
+    const balanceAfter = updatedUserDoc ? (updatedUserDoc.balance || depositAmt) : depositAmt;
 
+    // 🔒 3. RECORD TRANSACTION (Unique by reference_id & txId)
+    const txId = `tx_${reqItem.id}_dep`;
     const newTx: Transaction = {
-      id: `tx_${Date.now()}_dep`,
-      user_id: user ? user.id : reqItem.user_id,
-      username: reqItem.username,
+      id: txId,
+      user_id: updatedUserDoc ? updatedUserDoc.id : targetUserId,
+      username: targetUsername || 'user',
       type: 'DEPOSIT',
       amount: depositAmt,
-      balance_after: user ? user.balance : depositAmt,
-      description: `Deposit Approved via ${reqItem.payment_method} (UTR: ${reqItem.utr_number})`,
+      balance_after: balanceAfter,
+      description: `Deposit Approved via ${reqItem.payment_method} (UTR: ${reqItem.utr_number || reqItem.id})`,
       created_at: new Date().toISOString(),
       reference_id: reqItem.id,
     };
-    db.transactions.unshift(newTx);
+    await TransactionModel.findOneAndUpdate({ id: txId }, newTx, { upsert: true, new: true });
 
-    // Create user persistent notification
+    // 🔒 4. PERSISTENT USER NOTIFICATION
+    const notifId = `notif_${reqItem.id}_dep`;
     const newNotif = {
-      id: `notif_${Date.now()}_dep`,
-      user_id: user ? user.id : reqItem.user_id,
+      id: notifId,
+      user_id: updatedUserDoc ? updatedUserDoc.id : targetUserId,
       title: '🎉 Deposit Approved & Credited!',
-      message: `Your deposit of ₹${depositAmt.toLocaleString('en-IN')} has been approved and added to your wallet! New Balance: ₹${user ? user.balance.toLocaleString('en-IN') : depositAmt.toLocaleString('en-IN')}`,
+      message: `Your deposit of ₹${depositAmt.toLocaleString('en-IN')} has been approved and added to your wallet! New Balance: ₹${balanceAfter.toLocaleString('en-IN')}`,
       type: 'DEPOSIT_APPROVED',
       amount: depositAmt,
       reference_id: reqItem.utr_number || reqItem.id,
       is_read: false,
       created_at: new Date().toISOString(),
     };
+    await NotificationModel.findOneAndUpdate({ id: notifId }, newNotif, { upsert: true, new: true });
+
+    // In-memory sync
+    if (!db.deposit_requests) db.deposit_requests = [];
+    const dIdx = db.deposit_requests.findIndex((d) => d.id === reqItem!.id);
+    if (dIdx >= 0) db.deposit_requests[dIdx] = reqItem as any;
+    else db.deposit_requests.unshift(reqItem as any);
+
+    if (updatedUserDoc) {
+      if (!db.users) db.users = [];
+      const uIdx = db.users.findIndex((u) => u.id === updatedUserDoc.id);
+      if (uIdx >= 0) db.users[uIdx] = updatedUserDoc as any;
+      else db.users.push(updatedUserDoc as any);
+    }
+    if (!db.transactions) db.transactions = [];
+    const txIdx = db.transactions.findIndex(t => t.id === txId || t.reference_id === reqItem!.id);
+    if (txIdx >= 0) db.transactions[txIdx] = newTx;
+    else db.transactions.unshift(newTx);
+
     if (!db.notifications) db.notifications = [];
-    db.notifications.unshift(newNotif as any);
+    const nIdx = db.notifications.findIndex((n: any) => n.id === notifId || n.reference_id === reqItem!.id);
+    if (nIdx >= 0) db.notifications[nIdx] = newNotif as any;
+    else db.notifications.unshift(newNotif as any);
 
     saveDatabase();
 
-    await DepositRequestModel.findOneAndUpdate({ id: reqItem.id }, reqItem, { new: true }).catch(() => {});
-    await TransactionModel.findOneAndUpdate({ id: newTx.id }, newTx, { upsert: true, new: true }).catch(() => {});
-    await NotificationModel.findOneAndUpdate({ id: newNotif.id }, newNotif, { upsert: true, new: true }).catch(() => {});
-
-    const userProfile = user ? (({ password_hash, ...u }) => u)(user) : undefined;
+    const userProfile = updatedUserDoc ? (({ password_hash, ...u }) => u)(updatedUserDoc as any) : undefined;
     return res.json({
       success: true,
-      message: `Deposit of ₹${depositAmt.toLocaleString('en-IN')} approved! Balance credited automatically to @${reqItem.username}.`,
+      message: `Deposit of ₹${depositAmt.toLocaleString('en-IN')} approved! Balance credited automatically to @${targetUsername}.`,
       user: userProfile,
       depositRequest: reqItem,
     });
