@@ -870,6 +870,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const [approvingDepositId, setApprovingDepositId] = useState<string | null>(null);
   const [rejectingDepositId, setRejectingDepositId] = useState<string | null>(null);
+  const [approvingWithdrawalId, setApprovingWithdrawalId] = useState<string | null>(null);
+  const [rejectingWithdrawalId, setRejectingWithdrawalId] = useState<string | null>(null);
 
   // Financial Handlers
   const handleApproveDeposit = async (id: string) => {
@@ -920,52 +922,70 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleApproveWithdrawalToInProgress = async (id: string) => {
+    if (approvingWithdrawalId) return;
+    setApprovingWithdrawalId(id);
+
+    // ⚡ 0ms ZERO-FLICKER OPTIMISTIC UPDATE
+    setWithdrawalRequests((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, status: 'IN_PROGRESS', approved_at: new Date().toISOString(), estimated_minutes: 120 } : w))
+    );
+
     try {
-      setIsLoading(true);
       const res = await api.approveWithdrawalToInProgress(id);
       soundManager.playClick();
-      setActionMessage(`⏳ ${res.message}`);
-      await loadAdminData();
-      setTimeout(() => setActionMessage(null), 4000);
+      notify(`⏳ ${res.message}`, 'info');
+      await loadAdminData(true);
     } catch (err: any) {
-      setActionMessage(err.message || 'Failed to approve withdrawal');
-      setTimeout(() => setActionMessage(null), 3500);
+      notify(err.message || 'Failed to approve withdrawal', 'error');
+      await loadAdminData(true);
     } finally {
-      setIsLoading(false);
+      setApprovingWithdrawalId(null);
     }
   };
 
   const handleCompleteWithdrawalToSuccessful = async (id: string) => {
+    if (approvingWithdrawalId) return;
+    setApprovingWithdrawalId(id);
+
+    // ⚡ 0ms ZERO-FLICKER OPTIMISTIC UPDATE: Mark as successful instantly
+    setWithdrawalRequests((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, status: 'SUCCESSFUL', completed_at: new Date().toISOString() } : w))
+    );
+
     try {
-      setIsLoading(true);
-      const res = await api.completeWithdrawalToSuccessful(id);
       soundManager.playWinPayout();
-      setActionMessage(`✅ ${res.message}`);
-      await loadAdminData();
-      setTimeout(() => setActionMessage(null), 4000);
+      const res = await api.completeWithdrawalToSuccessful(id);
+      notify(`✅ ${res.message}`, 'success');
+      await loadAdminData(true);
     } catch (err: any) {
-      setActionMessage(err.message || 'Failed to complete withdrawal');
-      setTimeout(() => setActionMessage(null), 3500);
+      notify(err.message || 'Failed to complete withdrawal', 'error');
+      await loadAdminData(true);
     } finally {
-      setIsLoading(false);
+      setApprovingWithdrawalId(null);
     }
   };
 
   const handleRejectWithdrawal = async (id: string) => {
+    if (rejectingWithdrawalId) return;
     const reason = window.prompt('Enter rejection reason (Funds will be refunded to user):', 'Payout details invalid or bank rejected transfer.');
     if (reason === null) return;
+
+    setRejectingWithdrawalId(id);
+    // ⚡ 0ms ZERO-FLICKER OPTIMISTIC UPDATE: Mark as rejected
+    setWithdrawalRequests((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, status: 'REJECTED', admin_notes: reason } : w))
+    );
+
     try {
-      setIsLoading(true);
       const res = await api.rejectWithdrawalRequest(id, reason);
-      setActionMessage(`↩️ ${res.message}`);
-      await loadAdminData();
+      notify(`↩️ ${res.message}`, 'warning');
+      await loadAdminData(true);
       await onRefreshData();
-      setTimeout(() => setActionMessage(null), 4000);
     } catch (err: any) {
-      setActionMessage(err.message || 'Failed to reject withdrawal');
-      setTimeout(() => setActionMessage(null), 3500);
+      notify(err.message || 'Failed to reject withdrawal', 'error');
+      await loadAdminData(true);
     } finally {
-      setIsLoading(false);
+      setRejectingWithdrawalId(null);
     }
   };
 
@@ -8037,25 +8057,52 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </div>
 
                           {/* Action Controls */}
-                          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-900">
+                          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-900 flex-wrap">
                             {wth.status === 'PENDING' && (
                               <>
                                 <button
                                   type="button"
+                                  disabled={rejectingWithdrawalId === wth.id || approvingWithdrawalId === wth.id}
                                   onClick={() => handleRejectWithdrawal(wth.id)}
-                                  className="px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                                  className={`px-3.5 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition flex items-center gap-1.5 ${
+                                    rejectingWithdrawalId === wth.id || approvingWithdrawalId === wth.id ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'
+                                  }`}
                                 >
                                   <X className="w-3.5 h-3.5" />
-                                  <span>Reject & Refund</span>
+                                  <span>{rejectingWithdrawalId === wth.id ? 'Rejecting...' : 'Reject & Refund'}</span>
                                 </button>
 
                                 <button
                                   type="button"
+                                  disabled={approvingWithdrawalId === wth.id || rejectingWithdrawalId === wth.id}
                                   onClick={() => handleApproveWithdrawalToInProgress(wth.id)}
-                                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-md"
+                                  className={`px-3.5 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-bold transition flex items-center gap-1.5 ${
+                                    approvingWithdrawalId === wth.id || rejectingWithdrawalId === wth.id ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'
+                                  }`}
                                 >
-                                  <Timer className="w-4 h-4" />
-                                  <span>Approve (Start 120m SLA)</span>
+                                  <Timer className="w-3.5 h-3.5" />
+                                  <span>Queue 120m SLA</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  disabled={approvingWithdrawalId === wth.id || rejectingWithdrawalId === wth.id}
+                                  onClick={() => handleCompleteWithdrawalToSuccessful(wth.id)}
+                                  className={`px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black transition flex items-center gap-1.5 shadow-lg ${
+                                    approvingWithdrawalId === wth.id || rejectingWithdrawalId === wth.id ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-95'
+                                  }`}
+                                >
+                                  {approvingWithdrawalId === wth.id ? (
+                                    <>
+                                      <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
+                                      <span>Approving Payout...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Check className="w-4 h-4 stroke-[3]" />
+                                      <span>⚡ Approve & Pay ₹{wth.amount.toLocaleString('en-IN')}</span>
+                                    </>
+                                  )}
                                 </button>
                               </>
                             )}
@@ -8064,20 +8111,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <>
                                 <button
                                   type="button"
+                                  disabled={rejectingWithdrawalId === wth.id || approvingWithdrawalId === wth.id}
                                   onClick={() => handleRejectWithdrawal(wth.id)}
-                                  className="px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                                  className={`px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition flex items-center gap-1.5 ${
+                                    rejectingWithdrawalId === wth.id || approvingWithdrawalId === wth.id ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'
+                                  }`}
                                 >
                                   <X className="w-3.5 h-3.5" />
-                                  <span>Reject & Refund</span>
+                                  <span>{rejectingWithdrawalId === wth.id ? 'Rejecting...' : 'Reject & Refund'}</span>
                                 </button>
 
                                 <button
                                   type="button"
+                                  disabled={approvingWithdrawalId === wth.id || rejectingWithdrawalId === wth.id}
                                   onClick={() => handleCompleteWithdrawalToSuccessful(wth.id)}
-                                  className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black transition cursor-pointer flex items-center gap-1.5 shadow-lg"
+                                  className={`px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black transition flex items-center gap-1.5 shadow-lg ${
+                                    approvingWithdrawalId === wth.id || rejectingWithdrawalId === wth.id ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-95'
+                                  }`}
                                 >
-                                  <CheckCircle2 className="w-4 h-4 stroke-[3]" />
-                                  <span>Mark Successful (Paid Out)</span>
+                                  {approvingWithdrawalId === wth.id ? (
+                                    <>
+                                      <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
+                                      <span>Finalizing Payout...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="w-4 h-4 stroke-[3]" />
+                                      <span>Mark Paid Out (Disbursed)</span>
+                                    </>
+                                  )}
                                 </button>
                               </>
                             )}

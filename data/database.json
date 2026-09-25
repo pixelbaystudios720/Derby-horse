@@ -31,7 +31,7 @@
       "password_hash": "Aaaa9999",
       "phone": "9654789658",
       "profile_photo": "https://api.dicebear.com/7.x/bottts/svg?seed=dawood bhai",
-      "ref_id": "TURF-10001",
+      "ref_id": "TURF-10002",
       "role": "user",
       "updatedAt": "2026-09-23T20:54:18.746Z",
       "username": "dawood bhai"
@@ -156,7 +156,7 @@
       "position_2": [],
       "position_3": [],
       "position_4": [],
-      "race_day_id": "",
+      "race_day_id": "day_btc_today",
       "race_no": 1,
       "race_time": "2:00 PM",
       "settled_at": null,

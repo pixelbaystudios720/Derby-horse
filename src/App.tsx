@@ -874,6 +874,7 @@ export default function App() {
       {/* Withdraw Modal */}
       <WithdrawModal
         user={user}
+        myBets={myBets}
         isOpen={isWithdrawOpen}
         onClose={() => setIsWithdrawOpen(false)}
         onWithdraw={handleWithdraw}
