@@ -113,23 +113,20 @@ export default function App() {
     if (savedUser) {
       try {
         const parsed = JSON.parse(savedUser);
-        api.getMe(parsed.id)
-          .then((fresh) => {
-            if (fresh) {
-              setUser(fresh);
-            } else {
-              setUser(null);
-            }
-          })
-          .catch(() => {
-            setUser(null);
-          });
+        if (parsed && parsed.id) {
+          setUser(parsed);
+          api.getMe(parsed.id)
+            .then((fresh) => {
+              if (fresh) {
+                setUser((prev) => (JSON.stringify(prev) === JSON.stringify(fresh) ? prev : fresh));
+                try { localStorage.setItem('derby_user', JSON.stringify(fresh)); } catch {}
+              }
+            })
+            .catch(() => {});
+        }
       } catch (e) {
         console.error(e);
-        setUser(null);
       }
-    } else {
-      setUser(null);
     }
 
     // Check hash on page load and on back/forward button clicks

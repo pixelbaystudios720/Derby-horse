@@ -355,6 +355,8 @@ export const api = {
           if (data.users) try { localStorage.setItem('derby_admin_users', JSON.stringify(data.users)); } catch {}
           if (data.stats) try { localStorage.setItem('derby_admin_stats', JSON.stringify(data.stats)); } catch {}
           if (data.bets) try { localStorage.setItem('derby_admin_bets', JSON.stringify(data.bets)); } catch {}
+          if (data.deposits) try { localStorage.setItem('derby_deposit_requests', JSON.stringify(data.deposits)); } catch {}
+          if (data.withdrawals) try { localStorage.setItem('derby_withdrawal_requests', JSON.stringify(data.withdrawals)); } catch {}
           if (data.race_centers) try { localStorage.setItem('derby_race_centers', JSON.stringify(data.race_centers)); } catch {}
           return data;
         }
@@ -1194,16 +1196,9 @@ export const api = {
       console.warn('Backend getDepositRequests fallback:', e);
     }
 
-    let filtered = list.filter(
-      (r) =>
-        r &&
-        r.user_id !== 'usr_arjun' &&
-        r.user_id !== 'usr_rahul' &&
-        r.username !== 'arjun_punters' &&
-        r.username !== 'rahul_derby'
-    );
+    let filtered = list.filter((r) => r && r.id);
     if (userId) {
-      filtered = filtered.filter((r) => r.user_id === userId);
+      filtered = filtered.filter((r) => r.user_id === userId || r.username === userId);
     }
     if (status && status !== 'ALL') {
       filtered = filtered.filter((r) => r.status === status);
@@ -1509,16 +1504,9 @@ export const api = {
       console.warn('Backend getWithdrawalRequests fallback:', e);
     }
 
-    let filtered = list.filter(
-      (w) =>
-        w &&
-        w.user_id !== 'usr_arjun' &&
-        w.user_id !== 'usr_rahul' &&
-        w.username !== 'arjun_punters' &&
-        w.username !== 'rahul_derby'
-    );
+    let filtered = list.filter((w) => w && w.id);
     if (userId) {
-      filtered = filtered.filter((w) => w.user_id === userId);
+      filtered = filtered.filter((w) => w.user_id === userId || w.username === userId);
     }
     if (status && status !== 'ALL') {
       filtered = filtered.filter((w) => w.status === status);

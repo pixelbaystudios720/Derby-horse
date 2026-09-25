@@ -1178,25 +1178,25 @@ app.post("/api/auth/login", async (req, res) => {
   }
   const query = String(username).trim().toLowerCase();
   const cleanPass = String(password).trim();
-  if ((query === "derby_admin" || query === "admin" || query === "admin@derbybet.turf") && cleanPass === "admin123") {
+  if ((query === "derby_admin" || query === "admin" || query === "admin@derbybet.com" || query === "admin@derbybet.turf") && (cleanPass === "admin123" || cleanPass === "admin")) {
     const adminProfile = {
-      id: "usr_admin",
-      ref_id: "ADM-001",
-      full_name: "Turf Derby Master",
-      phone: "9999988888",
-      email: "admin@derbybet.turf",
-      username: "derby_admin",
+      id: "usr_admin_master",
+      ref_id: "ADMIN-001",
+      full_name: "Master Administrator",
+      phone: "9999999999",
+      email: "admin@derbybet.com",
+      username: "admin",
       password_hash: "",
-      balance: 0,
+      balance: 5e5,
       exposure: 0,
       role: "admin",
-      profile_photo: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=150&q=80",
+      profile_photo: "https://api.dicebear.com/7.x/bottts/svg?seed=admin",
       created_at: (/* @__PURE__ */ new Date()).toISOString()
     };
     return res.json({
       success: true,
       user: adminProfile,
-      token: "token_usr_admin"
+      token: "token_usr_admin_master"
     });
   }
   let user = db.users.find(
@@ -1263,20 +1263,20 @@ app.post("/api/auth/login", async (req, res) => {
 app.get("/api/auth/me", async (req, res) => {
   const authHeader = req.headers.authorization || "";
   const rawId = req.query.user_id || authHeader.replace("Bearer token_", "");
-  const userId = (rawId || "").trim();
-  if (userId === "usr_admin") {
+  const userId = (rawId || "").replace(/^token_/, "").trim();
+  if (userId === "usr_admin" || userId === "usr_admin_master" || userId === "admin") {
     const adminProfile = {
-      id: "usr_admin",
-      ref_id: "ADM-001",
-      full_name: "Turf Derby Master",
-      phone: "9999988888",
-      email: "admin@derbybet.turf",
-      username: "derby_admin",
+      id: "usr_admin_master",
+      ref_id: "ADMIN-001",
+      full_name: "Master Administrator",
+      phone: "9999999999",
+      email: "admin@derbybet.com",
+      username: "admin",
       password_hash: "",
-      balance: 0,
+      balance: 5e5,
       exposure: 0,
       role: "admin",
-      profile_photo: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=150&q=80",
+      profile_photo: "https://api.dicebear.com/7.x/bottts/svg?seed=admin",
       created_at: (/* @__PURE__ */ new Date()).toISOString()
     };
     return res.json({ success: true, user: adminProfile });
@@ -3617,15 +3617,18 @@ app.get("/api/deposits", async (req, res) => {
     const { user_id, status } = req.query;
     await ensureMongoConnected();
     const query = {};
-    if (user_id) query.user_id = user_id;
-    if (status && status !== "ALL") query.status = status;
+    if (user_id) {
+      query.$or = [{ user_id: String(user_id) }, { username: String(user_id) }];
+    }
+    if (status && status !== "ALL") {
+      query.status = status;
+    }
     const mongoDeposits = await DepositRequestModel.find(query).sort({ created_at: -1 }).lean().catch(() => []);
-    if (mongoDeposits && mongoDeposits.length > 0) {
+    if (mongoDeposits) {
       return res.json({ success: true, deposits: mongoDeposits });
     }
-    if (!db.deposit_requests) db.deposit_requests = [];
-    let list = db.deposit_requests;
-    if (user_id) list = list.filter((d) => d.user_id === user_id);
+    let list = db.deposit_requests || [];
+    if (user_id) list = list.filter((d) => d.user_id === user_id || d.username === user_id);
     if (status && status !== "ALL") list = list.filter((d) => d.status === status);
     return res.json({ success: true, deposits: list });
   } catch (err) {
@@ -3823,15 +3826,18 @@ app.get("/api/withdrawals", async (req, res) => {
     const { user_id, status } = req.query;
     await ensureMongoConnected();
     const query = {};
-    if (user_id) query.user_id = user_id;
-    if (status && status !== "ALL") query.status = status;
+    if (user_id) {
+      query.$or = [{ user_id: String(user_id) }, { username: String(user_id) }];
+    }
+    if (status && status !== "ALL") {
+      query.status = status;
+    }
     const mongoWithdrawals = await WithdrawalRequestModel.find(query).sort({ created_at: -1 }).lean().catch(() => []);
-    if (mongoWithdrawals && mongoWithdrawals.length > 0) {
+    if (mongoWithdrawals) {
       return res.json({ success: true, withdrawals: mongoWithdrawals });
     }
-    if (!db.withdrawal_requests) db.withdrawal_requests = [];
-    let list = db.withdrawal_requests;
-    if (user_id) list = list.filter((w) => w.user_id === user_id);
+    let list = db.withdrawal_requests || [];
+    if (user_id) list = list.filter((w) => w.user_id === user_id || w.username === user_id);
     if (status && status !== "ALL") list = list.filter((w) => w.status === status);
     return res.json({ success: true, withdrawals: list });
   } catch (err) {
