@@ -79,9 +79,10 @@ var HorseSchema = new import_mongoose.Schema(
     silk_color: { type: String, default: "#3b82f6" },
     form: { type: String, default: "" },
     weight: { type: String, default: "55kg" },
-    is_suspended: { type: Boolean, default: false }
+    is_suspended: { type: Boolean, default: false },
+    odds_history: { type: [import_mongoose.Schema.Types.Mixed], default: [] }
   },
-  { _id: false }
+  { _id: false, strict: false }
 );
 var HorseModel = import_mongoose.default.models.Horse || import_mongoose.default.model("Horse", HorseSchema, "horses");
 var RaceSchema = new import_mongoose.Schema(
@@ -2373,22 +2374,29 @@ app.put("/api/admin/races/:id/status", async (req, res) => {
 });
 app.put("/api/admin/horses/:id/odds", async (req, res) => {
   const { win_odds, place_odds, changed_by, race_id } = req.body;
+  const targetHorseId = String(req.params.id || "").trim();
   let foundHorse = null;
   let foundRace = null;
   try {
     await ensureMongoConnected();
-    const query = [{ "horses.id": req.params.id }];
-    if (!isNaN(Number(req.params.id))) {
-      query.push({ "horses.serial_no": Number(req.params.id) });
-      query.push({ "horses.horse_no": Number(req.params.id) });
-    }
+    let query = {};
     if (race_id) {
-      query.push({ id: race_id });
+      query = { id: race_id };
+    } else {
+      query = {
+        $or: [
+          { "horses.id": targetHorseId },
+          { "horses.horse_no": Number(targetHorseId) || -999 },
+          { "horses.serial_no": Number(targetHorseId) || -999 }
+        ]
+      };
     }
-    const mongoRace = await RaceModel.findOne({ $or: query }).lean();
+    const mongoRace = await RaceModel.findOne(query).lean();
     if (mongoRace) {
       foundRace = mongoRace;
-      foundHorse = foundRace.horses.find((h) => h.id === req.params.id || String(h.horse_no) === req.params.id || String(h.serial_no) === req.params.id) || null;
+      foundHorse = foundRace.horses.find(
+        (h) => h.id === targetHorseId || String(h.horse_no) === targetHorseId || String(h.serial_no) === targetHorseId || `no_${h.horse_no}` === targetHorseId || `no_${h.serial_no}` === targetHorseId || h.name && h.name.toLowerCase() === targetHorseId.toLowerCase()
+      ) || null;
       const idx = db.races.findIndex((r) => r.id === foundRace.id);
       if (idx >= 0) db.races[idx] = foundRace;
       else db.races.push(foundRace);
@@ -2398,7 +2406,10 @@ app.put("/api/admin/horses/:id/odds", async (req, res) => {
   }
   if (!foundHorse || !foundRace) {
     for (const race of db.races) {
-      const horse = race.horses.find((h) => h.id === req.params.id || String(h.horse_no) === req.params.id || String(h.serial_no) === req.params.id);
+      if (race_id && race.id !== race_id) continue;
+      const horse = race.horses.find(
+        (h) => h.id === targetHorseId || String(h.horse_no) === targetHorseId || String(h.serial_no) === targetHorseId || `no_${h.horse_no}` === targetHorseId || `no_${h.serial_no}` === targetHorseId || h.name && h.name.toLowerCase() === targetHorseId.toLowerCase()
+      );
       if (horse) {
         foundHorse = horse;
         foundRace = race;
@@ -2412,8 +2423,8 @@ app.put("/api/admin/horses/:id/odds", async (req, res) => {
   const prevWin = foundHorse.win_odds;
   const prevPlace = foundHorse.place_odds;
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
-  if (win_odds !== void 0 && !isNaN(Number(win_odds))) foundHorse.win_odds = Number(win_odds);
-  if (place_odds !== void 0 && !isNaN(Number(place_odds))) foundHorse.place_odds = Number(place_odds);
+  if (win_odds !== void 0 && !isNaN(Number(win_odds)) && Number(win_odds) > 0) foundHorse.win_odds = Number(win_odds);
+  if (place_odds !== void 0 && !isNaN(Number(place_odds)) && Number(place_odds) > 0) foundHorse.place_odds = Number(place_odds);
   foundHorse.odds_history = foundHorse.odds_history || [];
   foundHorse.odds_history.unshift({
     win_odds: foundHorse.win_odds,
@@ -2428,7 +2439,11 @@ app.put("/api/admin/horses/:id/odds", async (req, res) => {
   saveDatabase();
   try {
     await ensureMongoConnected();
-    await RaceModel.findOneAndUpdate({ id: foundRace.id }, foundRace, { upsert: true, new: true });
+    await RaceModel.findOneAndUpdate(
+      { id: foundRace.id },
+      { $set: { horses: foundRace.horses } },
+      { upsert: true, new: true }
+    );
   } catch (err) {
     console.warn("MongoDB odds update notice:", err.message);
   }
@@ -2436,6 +2451,7 @@ app.put("/api/admin/horses/:id/odds", async (req, res) => {
 });
 app.post("/api/admin/races/:raceId/horses/:horseId/suspend", async (req, res) => {
   const { raceId, horseId } = req.params;
+  const targetHorseId = String(horseId || "").trim();
   let race = db.races.find((r) => r.id === raceId);
   if (!race) {
     try {
@@ -2449,13 +2465,19 @@ app.post("/api/admin/races/:raceId/horses/:horseId/suspend", async (req, res) =>
     }
   }
   if (!race) return res.status(404).json({ error: "Race not found" });
-  const horse = race.horses.find((h) => h.id === horseId);
+  const horse = race.horses.find(
+    (h) => h.id === targetHorseId || String(h.horse_no) === targetHorseId || String(h.serial_no) === targetHorseId || `no_${h.horse_no}` === targetHorseId || `no_${h.serial_no}` === targetHorseId || h.name && h.name.toLowerCase() === targetHorseId.toLowerCase()
+  );
   if (!horse) return res.status(404).json({ error: "Horse not found" });
   horse.is_suspended = true;
   saveDatabase();
   try {
     await ensureMongoConnected();
-    await RaceModel.findOneAndUpdate({ id: raceId }, race, { upsert: true, new: true });
+    await RaceModel.findOneAndUpdate(
+      { id: raceId },
+      { $set: { horses: race.horses } },
+      { upsert: true, new: true }
+    );
   } catch (err) {
     console.warn("MongoDB horse suspend sync notice:", err.message);
   }
@@ -2463,6 +2485,7 @@ app.post("/api/admin/races/:raceId/horses/:horseId/suspend", async (req, res) =>
 });
 app.post("/api/admin/races/:raceId/horses/:horseId/resume", async (req, res) => {
   const { raceId, horseId } = req.params;
+  const targetHorseId = String(horseId || "").trim();
   const { win_odds, place_odds } = req.body || {};
   let race = db.races.find((r) => r.id === raceId);
   if (!race) {
@@ -2477,15 +2500,22 @@ app.post("/api/admin/races/:raceId/horses/:horseId/resume", async (req, res) => 
     }
   }
   if (!race) return res.status(404).json({ error: "Race not found" });
-  const horse = race.horses.find((h) => h.id === horseId);
+  const horse = race.horses.find(
+    (h) => h.id === targetHorseId || String(h.horse_no) === targetHorseId || String(h.serial_no) === targetHorseId || `no_${h.horse_no}` === targetHorseId || `no_${h.serial_no}` === targetHorseId || h.name && h.name.toLowerCase() === targetHorseId.toLowerCase()
+  );
   if (!horse) return res.status(404).json({ error: "Horse not found" });
   horse.is_suspended = false;
+  race.is_suspended = false;
   if (win_odds !== void 0 && !isNaN(Number(win_odds)) && Number(win_odds) > 0) horse.win_odds = Number(win_odds);
   if (place_odds !== void 0 && !isNaN(Number(place_odds)) && Number(place_odds) > 0) horse.place_odds = Number(place_odds);
   saveDatabase();
   try {
     await ensureMongoConnected();
-    await RaceModel.findOneAndUpdate({ id: raceId }, race, { upsert: true, new: true });
+    await RaceModel.findOneAndUpdate(
+      { id: raceId },
+      { $set: { is_suspended: false, horses: race.horses } },
+      { upsert: true, new: true }
+    );
   } catch (err) {
     console.warn("MongoDB horse resume sync notice:", err.message);
   }
@@ -2513,7 +2543,11 @@ app.post("/api/admin/races/:raceId/suspend", async (req, res) => {
   saveDatabase();
   try {
     await ensureMongoConnected();
-    await RaceModel.findOneAndUpdate({ id: raceId }, race, { upsert: true, new: true });
+    await RaceModel.findOneAndUpdate(
+      { id: raceId },
+      { $set: { is_suspended: true, horses: race.horses } },
+      { upsert: true, new: true }
+    );
   } catch (err) {
     console.warn("MongoDB race suspend-all sync notice:", err.message);
   }
@@ -2538,16 +2572,22 @@ app.post("/api/admin/races/:raceId/resume", async (req, res) => {
   race.is_suspended = false;
   for (const h of race.horses) {
     h.is_suspended = false;
-    if (oddsMap && oddsMap[h.id]) {
-      const update = oddsMap[h.id];
-      if (update.win_odds !== void 0 && !isNaN(update.win_odds)) h.win_odds = Number(update.win_odds);
-      if (update.place_odds !== void 0 && !isNaN(update.place_odds)) h.place_odds = Number(update.place_odds);
+    if (oddsMap) {
+      const match = oddsMap[h.id] || oddsMap[String(h.horse_no)] || oddsMap[String(h.serial_no)];
+      if (match) {
+        if (match.win_odds !== void 0 && !isNaN(Number(match.win_odds))) h.win_odds = Number(match.win_odds);
+        if (match.place_odds !== void 0 && !isNaN(Number(match.place_odds))) h.place_odds = Number(match.place_odds);
+      }
     }
   }
   saveDatabase();
   try {
     await ensureMongoConnected();
-    await RaceModel.findOneAndUpdate({ id: raceId }, race, { upsert: true, new: true });
+    await RaceModel.findOneAndUpdate(
+      { id: raceId },
+      { $set: { is_suspended: false, horses: race.horses } },
+      { upsert: true, new: true }
+    );
   } catch (err) {
     console.warn("MongoDB race resume-all sync notice:", err.message);
   }

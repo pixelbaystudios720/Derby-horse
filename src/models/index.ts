@@ -77,8 +77,9 @@ export const HorseSchema = new Schema<IHorse>(
     form: { type: String, default: '' },
     weight: { type: String, default: '55kg' },
     is_suspended: { type: Boolean, default: false },
+    odds_history: { type: [Schema.Types.Mixed], default: [] },
   },
-  { _id: false }
+  { _id: false, strict: false }
 );
 
 export const HorseModel: Model<IHorse> =
