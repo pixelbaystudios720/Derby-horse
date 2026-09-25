@@ -41,8 +41,9 @@ async function main() {
     console.warn('Notifications:', e);
   }
 
-  // 4. Update all user balances to exact deposited amount & generate clean deposit statement
-  console.log('💰 Setting all user balances to approved deposit amounts only...');
+  // 4. Update all user balances to ₹50 Registration Bonus + approved deposit amounts
+  const BONUS_AMOUNT = 50;
+  console.log(`💰 Setting all user balances to ₹${BONUS_AMOUNT} Bonus + Approved Deposits...`);
   const allUsers = await UserModel.find({ username: { $ne: 'admin' } });
   const allApprovedDeposits = await DepositRequestModel.find({ status: 'APPROVED' }).lean();
 
@@ -51,7 +52,7 @@ async function main() {
       (d) => d.user_id === user.id || d.username === user.username
     );
     const depTotal = userDeps.reduce((sum, d) => sum + (d.amount || 0), 0);
-    const finalBalance = depTotal > 0 ? depTotal : 5000;
+    const finalBalance = BONUS_AMOUNT + depTotal;
 
     await UserModel.updateOne(
       { _id: user._id },
@@ -63,25 +64,36 @@ async function main() {
       }
     );
 
-    // Ensure a clean deposit transaction exists for the user statement ledger
+    // Ensure clean transactions exist for the user statement ledger
     await TransactionModel.deleteMany({
       $or: [{ user_id: user.id }, { username: user.username }],
     });
 
-    const depositTx = {
-      id: `tx_dep_${user.id}`,
+    // 1. Welcome / Registration Bonus Transaction (₹50)
+    await TransactionModel.create({
+      id: `tx_bonus_${user.id}`,
       user_id: user.id,
-      username: user.username,
-      type: 'DEPOSIT',
-      amount: finalBalance,
-      balance_after: finalBalance,
-      description: `Deposit Approved via UPI / NetBanking`,
-      created_at: new Date().toISOString(),
-    };
+      type: 'DEPOSIT' as const,
+      amount: BONUS_AMOUNT,
+      balance_after: BONUS_AMOUNT,
+      description: '🎉 Welcome Registration Bonus',
+      created_at: user.created_at || new Date().toISOString(),
+    });
 
-    await TransactionModel.create(depositTx);
+    // 2. Approved Deposits Transaction (if user has deposited amounts)
+    if (depTotal > 0) {
+      await TransactionModel.create({
+        id: `tx_dep_${user.id}`,
+        user_id: user.id,
+        type: 'DEPOSIT' as const,
+        amount: depTotal,
+        balance_after: finalBalance,
+        description: 'Deposit Approved via UPI / NetBanking',
+        created_at: new Date().toISOString(),
+      });
+    }
 
-    console.log(`✅ User @${user.username} (${user.id}): Balance = ₹${finalBalance} (Deposits: ₹${depTotal}, Exposure: ₹0)`);
+    console.log(`✅ User @${user.username} (${user.id}): Balance = ₹${finalBalance} (Bonus: ₹${BONUS_AMOUNT}, Deposits: ₹${depTotal}, Exposure: ₹0)`);
   }
 
   console.log('🎉 ALL USERS AND MATCHES RESET COMPLETED SUCCESSFULLY!');
