@@ -221,12 +221,12 @@ export default function App() {
   useEffect(() => {
     loadRacesAndBanners(false);
 
-    // Smart Polling: Polls every 3s when tab is actively visible (pauses automatically when tab is in background)
+    // Ultra-fast real-time cross-device sync every 1.5s
     const autoPoll = setInterval(() => {
       if (typeof document !== 'undefined' && !document.hidden) {
         loadRacesAndBanners(true);
       }
-    }, 3000);
+    }, 1500);
 
     // Instantly refresh when user switches back to this tab
     const handleVisibilityOrFocus = () => {
@@ -370,10 +370,10 @@ export default function App() {
         loadUserFinancials(true);
       });
 
-      // Fast background polling every 3s when active tab is open for instant wallet credit & bet sync
+      // Fast background polling every 1.5s when active tab is open for instant wallet credit & bet sync
       const pollInterval = setInterval(() => {
         loadUserFinancials(true);
-      }, 3000);
+      }, 1500);
 
       // Instantly refresh financials when user returns to tab
       const handleVisibilityOrFocus = () => {

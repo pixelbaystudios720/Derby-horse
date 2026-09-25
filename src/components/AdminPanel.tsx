@@ -836,11 +836,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       loadAdminData(true);
     });
 
+    // ⚡ Ultra-fast 1.5s real-time cross-device sync
     const pollTimer = setInterval(() => {
       if (typeof document !== 'undefined' && !document.hidden) {
         loadAdminData(true);
       }
-    }, 3000);
+    }, 1500);
 
     const handleFocus = () => {
       if (typeof document !== 'undefined' && !document.hidden) {
@@ -2772,19 +2773,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <button
             id="admin-tab-financials"
             onClick={() => setActiveTab('financials')}
-            className={`px-3.5 py-2 rounded-xl transition cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0 ${activeTab === 'financials'
+            className={`px-3.5 py-2 rounded-xl transition cursor-pointer whitespace-nowrap flex items-center gap-2 shrink-0 ${activeTab === 'financials'
                 ? 'bg-amber-500 text-slate-950 shadow-sm font-black'
                 : 'text-amber-400 hover:text-white hover:bg-slate-800/80'
               }`}
           >
             <Banknote className="w-3.5 h-3.5" />
             <span>Financials & Reports</span>
-            {(depositRequests.filter(d => d.status === 'PENDING').length + withdrawalRequests.filter(w => w.status === 'PENDING' || w.status === 'IN_PROGRESS').length) > 0 && (
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${activeTab === 'financials' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500 text-slate-950'
-                }`}>
-                {depositRequests.filter(d => d.status === 'PENDING').length + withdrawalRequests.filter(w => w.status === 'PENDING' || w.status === 'IN_PROGRESS').length}
-              </span>
-            )}
+            {(() => {
+              const pendingCount = (depositRequests.filter(d => d.status === 'PENDING').length + withdrawalRequests.filter(w => w.status === 'PENDING' || w.status === 'IN_PROGRESS').length);
+              if (pendingCount === 0) return null;
+              return (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-600 text-white animate-pulse shadow-lg shadow-rose-600/50 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                  <span>{pendingCount} PENDING</span>
+                </span>
+              );
+            })()}
           </button>
         )}
 
@@ -7244,17 +7249,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           return true; // 'ALL'
         });
 
+        // Separate settled bets from active in-play bets
+        const pnlSettledBets = pnlFilteredBets.filter((b) => b.status === 'WON' || b.status === 'LOST' || b.status === 'SETTLED');
+        const pnlPendingBets = pnlFilteredBets.filter((b) => b.status === 'PENDING');
         const pnlTurnover = pnlFilteredBets.reduce((acc, b) => acc + (b.stake || (b as any).amount || 0), 0);
+        const pnlSettledTurnover = pnlSettledBets.reduce((acc, b) => acc + (b.stake || (b as any).amount || 0), 0);
+        const pnlPendingTurnover = pnlPendingBets.reduce((acc, b) => acc + (b.stake || (b as any).amount || 0), 0);
         const pnlPayouts = pnlFilteredBets
           .filter((b) => b.status === 'WON')
           .reduce((acc, b) => acc + (b.payout || (b as any).payout_amount || 0), 0);
-        const pnlNetProfit = pnlTurnover - pnlPayouts;
-        const pnlMarginPct = pnlTurnover > 0 ? ((pnlNetProfit / pnlTurnover) * 100).toFixed(1) : '0.0';
+        
+        // Realized profit only comes from settled bets
+        const pnlNetProfit = pnlSettledBets.length > 0 ? (pnlSettledTurnover - pnlPayouts) : 0;
+        const pnlMarginPct = pnlSettledTurnover > 0 
+          ? ((pnlNetProfit / pnlSettledTurnover) * 100).toFixed(1) 
+          : (pnlPendingTurnover > 0 ? 'In-Play' : '0.0');
 
         // Center-wise grouping
         const centerPnLMap: Record<
           string,
-          { name: string; code: string; turnover: number; payouts: number; betCount: number; raceCount: number }
+          { name: string; code: string; turnover: number; settledTurnover: number; pendingTurnover: number; payouts: number; betCount: number; raceCount: number }
         > = {};
 
         // Seed centers
@@ -7263,9 +7277,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             name: c.name,
             code: c.code,
             turnover: 0,
+            settledTurnover: 0,
+            pendingTurnover: 0,
             payouts: 0,
             betCount: 0,
-            raceCount: (races || []).filter((r) => r.center_id === c.id || r.venue?.toLowerCase().includes(c.name.toLowerCase())).length,
+            raceCount: (races || []).filter((r) => r.center_id === c.id || r.venue?.toLowerCase().includes(c.name.toLowerCase()) || r.venue?.toLowerCase().includes((c.city || '').toLowerCase())).length,
           };
         });
 
@@ -7274,20 +7290,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           const race = (races || []).find((r) => r.id === b.race_id || r.name === b.race_name);
           let matchedCenterId = race?.center_id;
 
-          if (!matchedCenterId && (race?.venue || b.venue)) {
-            const venueStr = (race?.venue || b.venue || '').toLowerCase();
+          // Smart keyword-based venue check
+          const venueStr = (race?.venue || b.venue || (race ? race.name : '') || '').toLowerCase();
+          if (venueStr) {
             const foundCenter = (raceCenters || []).find(
-              (c) => venueStr.includes(c.name.toLowerCase()) || venueStr.includes((c.city || '').toLowerCase())
+              (c) => venueStr.includes(c.name.toLowerCase()) || (c.city && venueStr.includes(c.city.toLowerCase())) || (c.code && venueStr.includes(c.code.toLowerCase()))
             );
             if (foundCenter) matchedCenterId = foundCenter.id;
           }
 
-          const targetKey = matchedCenterId || 'general_center';
+          const targetKey = matchedCenterId || 'cntr_bangalore';
           if (!centerPnLMap[targetKey]) {
             centerPnLMap[targetKey] = {
-              name: race?.venue || b.venue || 'General Book',
-              code: 'GEN',
+              name: race?.venue || b.venue || 'Bangalore Turf Club',
+              code: 'BTC',
               turnover: 0,
+              settledTurnover: 0,
+              pendingTurnover: 0,
               payouts: 0,
               betCount: 0,
               raceCount: 1,
@@ -7297,6 +7316,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           const betStake = b.stake || (b as any).amount || 0;
           const betPayout = b.status === 'WON' ? b.payout || (b as any).payout_amount || 0 : 0;
           centerPnLMap[targetKey].turnover += betStake;
+          if (b.status === 'PENDING') {
+            centerPnLMap[targetKey].pendingTurnover += betStake;
+          } else {
+            centerPnLMap[targetKey].settledTurnover += betStake;
+          }
           centerPnLMap[targetKey].payouts += betPayout;
           centerPnLMap[targetKey].betCount += 1;
         });
@@ -7353,7 +7377,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   id="fin-subtab-deposits"
                   onClick={() => setFinancialSubTab('DEPOSITS')}
-                  className={`py-2 px-3 rounded-xl font-black flex items-center justify-center gap-1.5 transition cursor-pointer ${financialSubTab === 'DEPOSITS'
+                  className={`py-2 px-3 rounded-xl font-black flex items-center justify-center gap-2 transition cursor-pointer ${financialSubTab === 'DEPOSITS'
                       ? 'bg-amber-500 text-slate-950 shadow-md'
                       : 'text-slate-400 hover:text-white'
                     }`}
@@ -7361,8 +7385,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Deposits</span>
                   {pendingDeposits.length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-rose-500 text-white animate-pulse">
-                      {pendingDeposits.length}
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-600 text-white animate-pulse shadow-md shadow-rose-600/50 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                      <span>{pendingDeposits.length} PENDING</span>
                     </span>
                   )}
                 </button>
@@ -7370,7 +7395,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <button
                   id="fin-subtab-withdrawals"
                   onClick={() => setFinancialSubTab('WITHDRAWALS')}
-                  className={`py-2 px-3 rounded-xl font-black flex items-center justify-center gap-1.5 transition cursor-pointer ${financialSubTab === 'WITHDRAWALS'
+                  className={`py-2 px-3 rounded-xl font-black flex items-center justify-center gap-2 transition cursor-pointer ${financialSubTab === 'WITHDRAWALS'
                       ? 'bg-amber-500 text-slate-950 shadow-md'
                       : 'text-slate-400 hover:text-white'
                     }`}
@@ -7378,8 +7403,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <ArrowUpRight className="w-3.5 h-3.5 text-blue-400" />
                   <span>Withdrawals</span>
                   {activeWithdrawals.length > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-blue-500 text-white">
-                      {activeWithdrawals.length}
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-600 text-white animate-pulse shadow-md shadow-blue-600/50 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                      <span>{activeWithdrawals.length} ACTIVE</span>
                     </span>
                   )}
                 </button>
@@ -8076,7 +8102,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <div className="text-xl font-black text-white font-mono">
                       ₹{pnlTurnover.toLocaleString('en-IN')}
                     </div>
-                    <span className="text-[10px] text-slate-500">{pnlFilteredBets.length} Bets Placed</span>
+                    <span className="text-[10px] text-slate-500">{pnlFilteredBets.length} Bets Placed ({pnlPendingBets.length} In-Play)</span>
                   </div>
 
                   <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
@@ -8085,7 +8111,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       ₹{pnlPayouts.toLocaleString('en-IN')}
                     </div>
                     <span className="text-[10px] text-slate-500">
-                      {pnlFilteredBets.filter((b) => b.status === 'WON').length} Winning Bets
+                      {pnlSettledBets.filter((b) => b.status === 'WON').length} Winning Bets ({pnlSettledBets.length} Settled)
                     </span>
                   </div>
 
@@ -8096,19 +8122,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <span className="text-[11px] font-bold uppercase text-slate-300">Net Bookmaker P/L</span>
                     <div className={`text-xl font-black font-mono ${pnlNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
                       }`}>
-                      {pnlNetProfit >= 0 ? `+₹${pnlNetProfit.toLocaleString('en-IN')}` : `-₹${Math.abs(pnlNetProfit).toLocaleString('en-IN')}`}
+                      {pnlSettledBets.length > 0 
+                        ? (pnlNetProfit >= 0 ? `+₹${pnlNetProfit.toLocaleString('en-IN')}` : `-₹${Math.abs(pnlNetProfit).toLocaleString('en-IN')}`)
+                        : '₹0 (In-Play)'
+                      }
                     </div>
                     <span className={`text-[10px] font-bold ${pnlNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {pnlNetProfit >= 0 ? 'Bookmaker Profit' : 'Bookmaker Loss'}
+                      {pnlSettledBets.length > 0
+                        ? (pnlNetProfit >= 0 ? 'Realized Profit' : 'Realized Loss')
+                        : `Pending: ₹${pnlPendingTurnover.toLocaleString('en-IN')} Active`}
                     </span>
                   </div>
 
                   <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1">
                     <span className="text-[11px] font-bold text-indigo-400 uppercase">Hold Margin %</span>
                     <div className="text-xl font-black text-indigo-300 font-mono">
-                      {pnlMarginPct}%
+                      {pnlMarginPct === 'In-Play' ? 'In-Play' : `${pnlMarginPct}%`}
                     </div>
-                    <span className="text-[10px] text-slate-500">Net Retained Stake %</span>
+                    <span className="text-[10px] text-slate-500">{pnlSettledBets.length > 0 ? 'Net Retained Stake %' : 'Awaiting Settlement'}</span>
                   </div>
                 </div>
 
@@ -8128,8 +8159,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono">
                       {centerPnLRows.map((c, i) => {
-                        const netPl = c.turnover - c.payouts;
-                        const margin = c.turnover > 0 ? ((netPl / c.turnover) * 100).toFixed(1) : '0.0';
+                        const isAllPending = c.settledTurnover === 0 && c.pendingTurnover > 0;
+                        const netPl = c.settledTurnover > 0 ? (c.settledTurnover - c.payouts) : 0;
+                        const margin = c.settledTurnover > 0 ? ((netPl / c.settledTurnover) * 100).toFixed(1) : (isAllPending ? 'In-Play' : '0.0');
                         return (
                           <tr key={i} className="hover:bg-slate-900/40">
                             <td className="py-3 px-3.5 font-bold text-white font-sans">
@@ -8148,11 +8180,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             <td className="py-3 px-3 text-right text-amber-400 font-bold">
                               ₹{c.payouts.toLocaleString('en-IN')}
                             </td>
-                            <td className={`py-3 px-3 text-right font-black ${netPl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                              {netPl >= 0 ? `+₹${netPl.toLocaleString('en-IN')}` : `-₹${Math.abs(netPl).toLocaleString('en-IN')}`}
+                            <td className={`py-3 px-3 text-right font-black ${isAllPending ? 'text-amber-400' : (netPl >= 0 ? 'text-emerald-400' : 'text-rose-400')}`}>
+                              {isAllPending ? `₹0 (₹${c.pendingTurnover.toLocaleString('en-IN')} in-play)` : (netPl >= 0 ? `+₹${netPl.toLocaleString('en-IN')}` : `-₹${Math.abs(netPl).toLocaleString('en-IN')}`)}
                             </td>
-                            <td className={`py-3 px-3.5 text-right font-bold ${netPl >= 0 ? 'text-indigo-300' : 'text-rose-400'}`}>
-                              {margin}%
+                            <td className={`py-3 px-3.5 text-right font-bold ${isAllPending ? 'text-amber-300' : (netPl >= 0 ? 'text-indigo-300' : 'text-rose-400')}`}>
+                              {margin === 'In-Play' ? 'In-Play' : `${margin}%`}
                             </td>
                           </tr>
                         );
