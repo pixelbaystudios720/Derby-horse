@@ -2565,33 +2565,53 @@ app.post("/api/admin/races/:id/settle", async (req, res) => {
   const isDeadHeatWin = p1.length > 1;
   const isDeadHeatPlace = p2.length > 1 || p3.length > 1;
   const isDeadHeat = isDeadHeatWin || isDeadHeatPlace;
+  const findRaceHorse = (identifier) => {
+    if (!identifier || !race.horses) return null;
+    const clean = String(identifier).trim().toLowerCase();
+    return race.horses.find(
+      (h) => h.id === identifier || h.name && h.name.trim().toLowerCase() === clean || String(h.horse_no) === clean || String(h.serial_no) === clean
+    ) || null;
+  };
   const placeFactorMap = /* @__PURE__ */ new Map();
+  const registerPlaceFactor = (idOrName, factor) => {
+    if (!idOrName) return;
+    placeFactorMap.set(idOrName, factor);
+    const clean = String(idOrName).trim().toLowerCase();
+    placeFactorMap.set(clean, factor);
+    const horseObj = findRaceHorse(idOrName);
+    if (horseObj) {
+      if (horseObj.id) placeFactorMap.set(horseObj.id, factor);
+      if (horseObj.name) placeFactorMap.set(horseObj.name.trim().toLowerCase(), factor);
+      if (horseObj.horse_no !== void 0) placeFactorMap.set(`no_${horseObj.horse_no}`, factor);
+      if (horseObj.serial_no !== void 0) placeFactorMap.set(`no_${horseObj.serial_no}`, factor);
+    }
+  };
   let remainingSlots = 3;
   if (p1.length >= 3) {
     const factor = 3 / p1.length;
-    p1.forEach((hId) => placeFactorMap.set(hId, factor));
+    p1.forEach((hId) => registerPlaceFactor(hId, factor));
     remainingSlots = 0;
   } else {
-    p1.forEach((hId) => placeFactorMap.set(hId, 1));
+    p1.forEach((hId) => registerPlaceFactor(hId, 1));
     remainingSlots -= p1.length;
   }
   if (remainingSlots > 0 && p2.length > 0) {
     if (p2.length <= remainingSlots) {
-      p2.forEach((hId) => placeFactorMap.set(hId, 1));
+      p2.forEach((hId) => registerPlaceFactor(hId, 1));
       remainingSlots -= p2.length;
     } else {
       const factor = remainingSlots / p2.length;
-      p2.forEach((hId) => placeFactorMap.set(hId, factor));
+      p2.forEach((hId) => registerPlaceFactor(hId, factor));
       remainingSlots = 0;
     }
   }
   if (remainingSlots > 0 && p3.length > 0) {
     if (p3.length <= remainingSlots) {
-      p3.forEach((hId) => placeFactorMap.set(hId, 1));
+      p3.forEach((hId) => registerPlaceFactor(hId, 1));
       remainingSlots -= p3.length;
     } else {
       const factor = remainingSlots / p3.length;
-      p3.forEach((hId) => placeFactorMap.set(hId, factor));
+      p3.forEach((hId) => registerPlaceFactor(hId, factor));
       remainingSlots = 0;
     }
   }
@@ -2606,25 +2626,57 @@ app.post("/api/admin/races/:id/settle", async (req, res) => {
   race.dead_heat_note = isDeadHeatWin ? `DEAD HEAT FOR WIN (${p1.length} Horses Tied for 1st)` : isDeadHeatPlace ? `DEAD HEAT FOR PLACE` : void 0;
   race.status = "RESULTED";
   race.settled_at = (/* @__PURE__ */ new Date()).toISOString();
-  let mongoPendingBets = [];
+  const norm = (s) => (s || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const raceNormName = norm(race.name);
+  let mongoBets = [];
   try {
-    mongoPendingBets = await BetModel.find({
-      $or: [{ race_id: race.id }, { race_name: race.name }],
-      status: "PENDING"
+    mongoBets = await BetModel.find({
+      $or: [
+        { race_id: race.id },
+        { race_name: race.name },
+        { venue: race.venue }
+      ]
     }).lean().catch(() => []);
   } catch {
   }
-  const pendingBetsMap = /* @__PURE__ */ new Map();
-  db.bets.filter((b) => (b.race_id === race.id || b.race_name === race.name) && b.status === "PENDING").forEach((b) => pendingBetsMap.set(b.id, b));
-  (mongoPendingBets || []).forEach((b) => pendingBetsMap.set(b.id, b));
-  const pendingBets = Array.from(pendingBetsMap.values());
+  const allAvailableBets = [...db.bets, ...mongoBets || []];
+  const betsToSettleMap = /* @__PURE__ */ new Map();
+  allAvailableBets.forEach((b) => {
+    const bNorm = norm(b.race_name);
+    const isMatched = b.race_id === race.id || bNorm && raceNormName && (bNorm === raceNormName || bNorm.includes(raceNormName) || raceNormName.includes(bNorm));
+    if (isMatched) {
+      betsToSettleMap.set(b.id, b);
+    }
+  });
+  const betsToSettle = Array.from(betsToSettleMap.values());
   let settledCount = 0;
   let totalPayout = 0;
   const betUpdates = [];
   const txCreates = [];
   const notifCreates = [];
   const userBalanceChanges = /* @__PURE__ */ new Map();
-  for (const bet of pendingBets) {
+  const isBetWinWinner = (bet) => {
+    const betHorseName = (bet.horse_name || "").trim().toLowerCase();
+    const betHorseNo = String(bet.horse_no || bet.serial_no || "");
+    return p1.some((winnerId) => {
+      if (winnerId === bet.horse_id) return true;
+      const winnerHorse = findRaceHorse(winnerId);
+      if (winnerHorse) {
+        if (winnerHorse.id === bet.horse_id) return true;
+        if (winnerHorse.name && betHorseName && winnerHorse.name.trim().toLowerCase() === betHorseName) return true;
+        if (winnerHorse.horse_no && betHorseNo && String(winnerHorse.horse_no) === betHorseNo) return true;
+        if (winnerHorse.serial_no && betHorseNo && String(winnerHorse.serial_no) === betHorseNo) return true;
+      }
+      return false;
+    });
+  };
+  const getBetPlaceFactor = (bet) => {
+    const betHorseName = (bet.horse_name || "").trim().toLowerCase();
+    const betHorseNo = bet.horse_no !== void 0 ? `no_${bet.horse_no}` : "";
+    const betSerialNo = bet.serial_no !== void 0 ? `no_${bet.serial_no}` : "";
+    return (bet.horse_id ? placeFactorMap.get(bet.horse_id) : void 0) ?? (betHorseName ? placeFactorMap.get(betHorseName) : void 0) ?? (betHorseNo ? placeFactorMap.get(betHorseNo) : void 0) ?? (betSerialNo ? placeFactorMap.get(betSerialNo) : void 0) ?? 0;
+  };
+  for (const bet of betsToSettle) {
     let isWon = false;
     let betPayout = 0;
     let betIsDeadHeat = false;
@@ -2632,7 +2684,7 @@ app.post("/api/admin/races/:id/settle", async (req, res) => {
     const numStake = Number(bet.stake || bet.amount || 0);
     const numOdds = Number(bet.odds || 1);
     if (bet.bet_type === "WIN") {
-      if (p1.includes(bet.horse_id)) {
+      if (isBetWinWinner(bet)) {
         isWon = true;
         if (p1.length > 1) {
           betIsDeadHeat = true;
@@ -2643,7 +2695,7 @@ app.post("/api/admin/races/:id/settle", async (req, res) => {
         }
       }
     } else if (bet.bet_type === "PLACE") {
-      const factor = placeFactorMap.get(bet.horse_id) || 0;
+      const factor = getBetPlaceFactor(bet);
       if (factor > 0) {
         isWon = true;
         if (factor < 1) {
@@ -2661,6 +2713,7 @@ app.post("/api/admin/races/:id/settle", async (req, res) => {
       memBet.settled_at = settledAt;
       memBet.status = isWon ? "WON" : "LOST";
       memBet.payout = isWon ? betPayout : 0;
+      memBet.amount = numStake;
       memBet.is_dead_heat = betIsDeadHeat;
       memBet.dead_heat_divider = betIsDeadHeat ? deadHeatDivider : void 0;
     }
@@ -2671,6 +2724,7 @@ app.post("/api/admin/races/:id/settle", async (req, res) => {
           $set: {
             status: isWon ? "WON" : "LOST",
             payout: isWon ? betPayout : 0,
+            amount: numStake,
             is_dead_heat: betIsDeadHeat,
             dead_heat_divider: betIsDeadHeat ? deadHeatDivider : void 0,
             settled_at: settledAt
@@ -2759,7 +2813,7 @@ app.post("/api/admin/races/:id/settle", async (req, res) => {
     console.warn("MongoDB race settle sync notice:", err.message);
   }
   saveDatabase();
-  const winnerNames = p1.map((id) => race.horses.find((h) => h.id === id)?.name || id).join(" & ");
+  const winnerNames = p1.map((id) => findRaceHorse(id)?.name || id).join(" & ");
   const message = isDeadHeatWin ? `\u{1F525} DEAD HEAT Result Declared! 1st Place tied between: ${winnerNames}. ${settledCount} bets settled as per Dead Heat rules (\u20B9${totalPayout.toLocaleString("en-IN")} paid out).` : `Race "${race.name}" settled with winner ${winnerNames}! ${settledCount} bets settled (\u20B9${totalPayout.toLocaleString("en-IN")} paid out).`;
   return res.json({
     success: true,

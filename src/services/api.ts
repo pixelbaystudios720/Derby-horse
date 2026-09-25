@@ -2347,30 +2347,58 @@ export const api = {
     } catch {}
 
     const allRaces = await this.getRaces('all');
-    const race = allRaces.find((r) => r.id === raceId);
-    
+    const race = allRaces.find((r) => r.id === raceId) || allRaces.find(r => r.name === raceId);
+
+    // Helper to resolve horse object from any identifier (ID, name, number)
+    const findRaceHorse = (identifier: string) => {
+      if (!identifier || !race?.horses) return null;
+      const clean = String(identifier).trim().toLowerCase();
+      return race.horses.find(
+        (h) =>
+          h.id === identifier ||
+          (h.name && h.name.trim().toLowerCase() === clean) ||
+          String(h.horse_no) === clean ||
+          String(h.serial_no) === clean
+      ) || null;
+    };
+
     // Place multipliers calculation (Total 3 place slots)
     const placeFactorMap = new Map<string, number>();
+
+    const registerPlaceFactor = (idOrName: string, factor: number) => {
+      if (!idOrName) return;
+      placeFactorMap.set(idOrName, factor);
+      const clean = String(idOrName).trim().toLowerCase();
+      placeFactorMap.set(clean, factor);
+      const horseObj = findRaceHorse(idOrName);
+      if (horseObj) {
+        if (horseObj.id) placeFactorMap.set(horseObj.id, factor);
+        if (horseObj.name) placeFactorMap.set(horseObj.name.trim().toLowerCase(), factor);
+        if (horseObj.horse_no !== undefined) placeFactorMap.set(`no_${horseObj.horse_no}`, factor);
+        if (horseObj.serial_no !== undefined) placeFactorMap.set(`no_${horseObj.serial_no}`, factor);
+      }
+    };
+
     let remainingSlots = 3;
 
     // Tier 1 (1st Place)
     if (p1.length >= 3) {
       const factor = 3 / p1.length;
-      p1.forEach(hId => placeFactorMap.set(hId, factor));
+      p1.forEach(hId => registerPlaceFactor(hId, factor));
       remainingSlots = 0;
     } else {
-      p1.forEach(hId => placeFactorMap.set(hId, 1.0));
+      p1.forEach(hId => registerPlaceFactor(hId, 1.0));
       remainingSlots -= p1.length;
     }
 
     // Tier 2 (2nd Place)
     if (remainingSlots > 0 && p2.length > 0) {
       if (p2.length <= remainingSlots) {
-        p2.forEach(hId => placeFactorMap.set(hId, 1.0));
+        p2.forEach(hId => registerPlaceFactor(hId, 1.0));
         remainingSlots -= p2.length;
       } else {
         const factor = remainingSlots / p2.length;
-        p2.forEach(hId => placeFactorMap.set(hId, factor));
+        p2.forEach(hId => registerPlaceFactor(hId, factor));
         remainingSlots = 0;
       }
     }
@@ -2378,11 +2406,11 @@ export const api = {
     // Tier 3 (3rd Place)
     if (remainingSlots > 0 && p3.length > 0) {
       if (p3.length <= remainingSlots) {
-        p3.forEach(hId => placeFactorMap.set(hId, 1.0));
+        p3.forEach(hId => registerPlaceFactor(hId, 1.0));
         remainingSlots -= p3.length;
       } else {
         const factor = remainingSlots / p3.length;
-        p3.forEach(hId => placeFactorMap.set(hId, factor));
+        p3.forEach(hId => registerPlaceFactor(hId, factor));
         remainingSlots = 0;
       }
     }
@@ -2429,36 +2457,76 @@ export const api = {
     let settledCount = 0;
     let totalPaidOut = 0;
 
+    const norm = (s?: string) => (s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const raceNormName = race ? norm(race.name) : norm(raceId);
+
+    // Check whether a bet won 1st Place (WIN market)
+    const isBetWinWinner = (bet: any) => {
+      const betHorseName = (bet.horse_name || '').trim().toLowerCase();
+      const betHorseNo = String(bet.horse_no || bet.serial_no || '');
+      return p1.some((winnerId) => {
+        if (winnerId === bet.horse_id) return true;
+        const winnerHorse = findRaceHorse(winnerId);
+        if (winnerHorse) {
+          if (winnerHorse.id === bet.horse_id) return true;
+          if (winnerHorse.name && betHorseName && winnerHorse.name.trim().toLowerCase() === betHorseName) return true;
+          if (winnerHorse.horse_no && betHorseNo && String(winnerHorse.horse_no) === betHorseNo) return true;
+          if (winnerHorse.serial_no && betHorseNo && String(winnerHorse.serial_no) === betHorseNo) return true;
+        }
+        return false;
+      });
+    };
+
+    // Check whether a bet qualified for Top 3 (PLACE market)
+    const getBetPlaceFactor = (bet: any) => {
+      const betHorseName = (bet.horse_name || '').trim().toLowerCase();
+      const betHorseNo = bet.horse_no !== undefined ? `no_${bet.horse_no}` : '';
+      const betSerialNo = bet.serial_no !== undefined ? `no_${bet.serial_no}` : '';
+      return (
+        (bet.horse_id ? placeFactorMap.get(bet.horse_id) : undefined) ??
+        (betHorseName ? placeFactorMap.get(betHorseName) : undefined) ??
+        (betHorseNo ? placeFactorMap.get(betHorseNo) : undefined) ??
+        (betSerialNo ? placeFactorMap.get(betSerialNo) : undefined) ??
+        0
+      );
+    };
+
     for (const bet of localBets) {
-      const isRaceMatch = bet.race_id === raceId || (race && bet.race_name === race.name);
-      if (isRaceMatch && bet.status === 'PENDING') {
+      const bNorm = norm(bet.race_name);
+      const isRaceMatch = 
+        bet.race_id === raceId || 
+        (race && bet.race_id === race.id) ||
+        (bNorm && raceNormName && (bNorm === raceNormName || bNorm.includes(raceNormName) || raceNormName.includes(bNorm)));
+
+      if (isRaceMatch) {
         let isWon = false;
         let payoutAmount = 0;
         let betIsDeadHeat = false;
         let deadHeatDivider = 1;
+        const numStake = Number(bet.stake || bet.amount || 0);
+        const numOdds = Number(bet.odds || 1);
 
         if (bet.bet_type === 'WIN') {
-          if (p1.includes(bet.horse_id)) {
+          if (isBetWinWinner(bet)) {
             isWon = true;
             if (p1.length > 1) {
               betIsDeadHeat = true;
               deadHeatDivider = p1.length;
-              // Method A - Betfair rule: (Stake / N) * Odds
-              payoutAmount = Math.round((bet.stake / p1.length) * bet.odds);
+              payoutAmount = Math.round((numStake / p1.length) * numOdds);
             } else {
-              payoutAmount = Math.round(bet.stake * bet.odds);
+              payoutAmount = Math.round(numStake * numOdds);
             }
           }
         } else if (bet.bet_type === 'PLACE') {
-          const factor = placeFactorMap.get(bet.horse_id) || 0;
+          const factor = getBetPlaceFactor(bet);
           if (factor > 0) {
             isWon = true;
             if (factor < 1.0) {
               betIsDeadHeat = true;
               deadHeatDivider = Math.round(1 / factor);
-              payoutAmount = Math.round((bet.stake * factor) * bet.odds);
+              payoutAmount = Math.round((numStake * factor) * numOdds);
             } else {
-              payoutAmount = Math.round(bet.stake * bet.odds);
+              payoutAmount = Math.round(numStake * numOdds);
             }
           }
         }
@@ -2473,12 +2541,12 @@ export const api = {
           totalPaidOut += payoutAmount;
 
           const winDesc = betIsDeadHeat
-            ? `Won ${bet.bet_type} bet (Dead Heat 1/${deadHeatDivider || 2}) on ${bet.horse_name} in ${race.name || 'Race'}`
-            : `Won ${bet.bet_type} bet on ${bet.horse_name} in ${race.name || 'Race'}`;
+            ? `Won ${bet.bet_type} bet (Dead Heat 1/${deadHeatDivider || 2}) on ${bet.horse_name} in ${race?.name || 'Race'}`
+            : `Won ${bet.bet_type} bet on ${bet.horse_name} in ${race?.name || 'Race'}`;
 
           // Credit balance & release exposure
           currentUser.balance = (currentUser.balance ?? 0) + payoutAmount;
-          currentUser.exposure = Math.max(0, (currentUser.exposure ?? 0) - bet.stake);
+          currentUser.exposure = Math.max(0, (currentUser.exposure ?? 0) - numStake);
 
           // Log WIN transaction (only if not already recorded)
           const existingTxIdx = localTxs.findIndex((t) => t.reference_id === bet.id && t.type === 'WIN');
@@ -2501,8 +2569,7 @@ export const api = {
         } else {
           bet.status = 'LOST';
           bet.payout = 0;
-          // Release exposure on loss
-          currentUser.exposure = Math.max(0, (currentUser.exposure ?? 0) - bet.stake);
+          currentUser.exposure = Math.max(0, (currentUser.exposure ?? 0) - numStake);
         }
         settledCount++;
       }
@@ -2522,7 +2589,7 @@ export const api = {
       timestamp: Date.now(),
     });
 
-    const winnerNames = p1.map(id => race?.horses?.find((h) => h.id === id)?.name || id).join(' & ');
+    const winnerNames = p1.map(id => findRaceHorse(id)?.name || id).join(' & ');
     const message = isDeadHeatWin
       ? `🔥 DEAD HEAT Result Declared! 1st Place: ${winnerNames}. ${settledCount} bets settled via Dead Heat Rules (₹${totalPaidOut.toLocaleString('en-IN')} paid out).`
       : `Race "${race?.name || 'Fixture'}" resulted with winner ${winnerNames}! ${settledCount} bets settled (${totalPaidOut > 0 ? `₹${totalPaidOut.toLocaleString('en-IN')} paid out to wallet` : 'no winning bets'}).`;

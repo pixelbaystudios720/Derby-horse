@@ -235,10 +235,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const getRaceBets = (raceId: string) => {
     if (!raceId) return [];
     const targetRace = (races || []).find((r) => r.id === raceId);
-    const targetName = targetRace?.name?.trim().toLowerCase();
+    const norm = (s?: string) => (s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const targetNorm = targetRace ? norm(targetRace.name) : norm(raceId);
     return (allBets || []).filter((b) => {
       if (b.race_id === raceId) return true;
-      if (targetName && b.race_name && b.race_name.trim().toLowerCase() === targetName) return true;
+      if (targetRace && b.race_id === targetRace.id) return true;
+      const bNorm = norm(b.race_name);
+      if (targetNorm && bNorm && (targetNorm === bNorm || targetNorm.includes(bNorm) || bNorm.includes(targetNorm))) return true;
       return false;
     });
   };
@@ -9983,16 +9986,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </thead>
                       <tbody className="divide-y divide-slate-800/80">
                         {filteredBets.map((bet) => {
-                          const user = users.find((u) => u.id === bet.user_id);
-                          const horse = auditRace.horses.find((h) => h.id === bet.horse_id || h.name === bet.horse_name);
+                          const user = users.find((u) => u.id === bet.user_id || u.username === bet.username);
+                          const horse = auditRace.horses?.find((h) => 
+                            h.id === bet.horse_id || 
+                            (h.name && bet.horse_name && h.name.trim().toLowerCase() === bet.horse_name.trim().toLowerCase()) ||
+                            (h.horse_no && bet.horse_no && Number(h.horse_no) === Number(bet.horse_no)) ||
+                            (h.serial_no && bet.serial_no && Number(h.serial_no) === Number(bet.serial_no))
+                          );
                           const isWinStatus = bet.status === 'WON' || bet.status === 'DEAD_HEAT_SPLIT';
+                          const payoutVal = Number(bet.payout || bet.payout_amount || 0);
+                          const stakeVal = Number(bet.stake || bet.amount || 0);
+                          const betDateStr = bet.placed_at || bet.created_at;
+                          const formattedTime = betDateStr && !isNaN(new Date(betDateStr).getTime())
+                            ? new Date(betDateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                            : 'Just now';
 
                           return (
                             <tr key={bet.id} className="hover:bg-slate-900/50 transition">
                               {/* Bettor Info */}
                               <td className="py-3 px-3.5">
                                 <div className="font-bold text-white flex items-center gap-1.5">
-                                  <span>{user?.name || `User #${bet.user_id.slice(-6)}`}</span>
+                                  <span>{user?.name || bet.username || `User #${bet.user_id?.slice(-6) || 'punter'}`}</span>
                                 </div>
                                 <span className="text-[10px] text-slate-400 block font-mono">
                                   {user?.phone || user?.email || bet.user_id}
@@ -10029,18 +10043,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                               {/* Stake */}
                               <td className="py-3 px-3 text-right font-mono font-bold text-white">
-                                ₹{bet.amount.toLocaleString()}
+                                ₹{stakeVal.toLocaleString('en-IN')}
                               </td>
 
                               {/* Odds */}
                               <td className="py-3 px-3 text-center font-mono font-bold text-amber-400">
-                                {bet.odds.toFixed(2)}x
+                                {Number(bet.odds).toFixed(2)}x
                               </td>
 
                               {/* Payout */}
                               <td className="py-3 px-3 text-right font-mono font-black">
-                                {isWinStatus ? (
-                                  <span className="text-emerald-400">+₹{(bet.payout_amount || 0).toLocaleString()}</span>
+                                {isWinStatus && payoutVal > 0 ? (
+                                  <span className="text-emerald-400 font-bold">+₹{payoutVal.toLocaleString('en-IN')}</span>
                                 ) : (
                                   <span className="text-slate-500">₹0</span>
                                 )}
@@ -10049,23 +10063,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               {/* Status Badge */}
                               <td className="py-3 px-3 text-center">
                                 {bet.status === 'WON' ? (
-                                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-black uppercase">
-                                    WON
+                                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-black uppercase shadow-xs">
+                                    WON {bet.is_dead_heat ? '(DH)' : ''}
                                   </span>
                                 ) : bet.status === 'DEAD_HEAT_SPLIT' ? (
-                                  <span className="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[10px] font-black uppercase">
+                                  <span className="px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[10px] font-black uppercase">
                                     DH SPLIT ({bet.dead_heat_multiplier || 0.5}x)
                                   </span>
                                 ) : bet.status === 'LOST' ? (
-                                  <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/40 text-[10px] font-bold uppercase">
+                                  <span className="px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/40 text-[10px] font-bold uppercase">
                                     LOST
                                   </span>
                                 ) : bet.status === 'REFUNDED' ? (
-                                  <span className="px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 text-[10px] font-bold uppercase">
+                                  <span className="px-2.5 py-0.5 rounded-full bg-slate-700 text-slate-300 text-[10px] font-bold uppercase">
                                     REFUNDED
                                   </span>
                                 ) : (
-                                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold uppercase">
+                                  <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold uppercase">
                                     PENDING
                                   </span>
                                 )}
@@ -10073,7 +10087,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                               {/* Placed At */}
                               <td className="py-3 px-3.5 text-right text-slate-400 font-mono text-[10px]">
-                                {new Date(bet.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                {formattedTime}
                               </td>
                             </tr>
                           );
