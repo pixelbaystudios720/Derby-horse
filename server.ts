@@ -2979,7 +2979,10 @@ app.get('/api/admin/bootstrap', async (req, res) => {
 
     const depositsList = mongoDeposits && mongoDeposits.length > 0 ? mongoDeposits : (db.deposit_requests || []);
     const withdrawalsList = mongoWithdrawals && mongoWithdrawals.length > 0 ? mongoWithdrawals : (db.withdrawal_requests || []);
-    const betsList = mongoBets && mongoBets.length > 0 ? mongoBets : db.bets;
+    const betsList = (mongoBets && mongoBets.length > 0) ? mongoBets : (db.bets || []);
+    if (mongoBets && mongoBets.length > 0) {
+      db.bets = mongoBets as any;
+    }
     const txsList = mongoTxs && mongoTxs.length > 0 ? mongoTxs : (db.transactions || []);
 
     const rawUsers = (mongoUsers && mongoUsers.length > 0 ? mongoUsers : db.users.filter(u => u.role !== 'admin' && u.username !== 'admin'));

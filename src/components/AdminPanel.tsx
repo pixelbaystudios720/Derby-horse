@@ -232,9 +232,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const getRaceBets = (raceId: string) => (allBets || []).filter(b => b.race_id === raceId);
-  const getRaceTurnover = (raceId: string) => getRaceBets(raceId).reduce((sum, b) => sum + (b.amount || 0), 0);
-  const getRacePayouts = (raceId: string) => getRaceBets(raceId).reduce((sum, b) => sum + (b.payout_amount || 0), 0);
+  const getRaceBets = (raceId: string) => {
+    if (!raceId) return [];
+    const targetRace = (races || []).find((r) => r.id === raceId);
+    const targetName = targetRace?.name?.trim().toLowerCase();
+    return (allBets || []).filter((b) => {
+      if (b.race_id === raceId) return true;
+      if (targetName && b.race_name && b.race_name.trim().toLowerCase() === targetName) return true;
+      return false;
+    });
+  };
+  const getRaceTurnover = (raceId: string) => getRaceBets(raceId).reduce((sum, b) => sum + (b.stake || b.amount || 0), 0);
+  const getRacePayouts = (raceId: string) => getRaceBets(raceId).reduce((sum, b) => sum + (b.payout || b.payout_amount || 0), 0);
 
 
   // Masters: Level 1 (Centers) & Level 2 (Race Days) state
@@ -706,11 +715,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Load Admin Data (Ultra-fast single roundtrip bootstrap with 100% flicker-free reference checking)
   const loadAdminData = async (isBackground = false) => {
-    // Don't waste CPU/invocations if the browser tab is hidden in background
-    if (isBackground && typeof document !== 'undefined' && document.hidden) {
-      return;
-    }
-
     try {
       if (!isBackground && !stats && users.length === 0) setIsLoading(true);
 
@@ -3005,8 +3009,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                             {liveRace.horses.map((horse) => {
-                              const runnerWinBets = liveBets.filter((b) => b.horse_id === horse.id && b.bet_type === 'WIN');
-                              const runnerPlaceBets = liveBets.filter((b) => b.horse_id === horse.id && b.bet_type === 'PLACE');
+                              const matchHorse = (b: any) =>
+                                b.horse_id === horse.id ||
+                                (b.horse_name && horse.name && b.horse_name.trim().toUpperCase() === horse.name.trim().toUpperCase()) ||
+                                (b.serial_no !== undefined && horse.serial_no !== undefined && Number(b.serial_no) === Number(horse.serial_no)) ||
+                                (b.horse_no !== undefined && horse.horse_no !== undefined && Number(b.horse_no) === Number(horse.horse_no));
+
+                              const runnerWinBets = liveBets.filter((b) => matchHorse(b) && b.bet_type === 'WIN');
+                              const runnerPlaceBets = liveBets.filter((b) => matchHorse(b) && b.bet_type === 'PLACE');
                               const winStake = runnerWinBets.reduce((s, b) => s + (b.stake || b.amount || 0), 0);
                               const placeStake = runnerPlaceBets.reduce((s, b) => s + (b.stake || b.amount || 0), 0);
                               const totalRunnerStake = winStake + placeStake;

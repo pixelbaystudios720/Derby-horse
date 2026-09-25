@@ -277,7 +277,6 @@ var NotificationModel = import_mongoose.default.models.Notification || import_mo
 // src/models/db.ts
 var isConnected = false;
 var connectPromise = null;
-var lastConnectAttempt = 0;
 var lastMongoError = null;
 async function connectMongoDB(uri) {
   const fallbackUri = Buffer.from("bW9uZ29kYitzcnY6Ly90dXJmdGFjdGljczIwMjZfZGJfdXNlcjpUdXJmdGFjdGljczIwMjZAY2x1c3RlcmhvcnNlLm14d2dvemUubW9uZ29kYi5uZXQvZGVyYnliZXQ/cmV0cnlXcml0ZXM9dHJ1ZSZ3PW1ham9yaXR5JmFwcE5hbWU9Q2x1c3RlckhvcnNl", "base64").toString("utf-8");
@@ -293,10 +292,6 @@ async function connectMongoDB(uri) {
   if (connectPromise) {
     return connectPromise;
   }
-  if (Date.now() - lastConnectAttempt < 4e3) {
-    return false;
-  }
-  lastConnectAttempt = Date.now();
   connectPromise = (async () => {
     try {
       if (import_mongoose2.default.connection.readyState === 1) {
@@ -304,8 +299,8 @@ async function connectMongoDB(uri) {
         return true;
       }
       await import_mongoose2.default.connect(mongoUri, {
-        serverSelectionTimeoutMS: 5e3,
-        connectTimeoutMS: 5e3,
+        serverSelectionTimeoutMS: 8e3,
+        connectTimeoutMS: 8e3,
         maxPoolSize: 10
       });
       isConnected = true;
@@ -2899,7 +2894,10 @@ app.get("/api/admin/bootstrap", async (req, res) => {
     ]);
     const depositsList = mongoDeposits && mongoDeposits.length > 0 ? mongoDeposits : db.deposit_requests || [];
     const withdrawalsList = mongoWithdrawals && mongoWithdrawals.length > 0 ? mongoWithdrawals : db.withdrawal_requests || [];
-    const betsList = mongoBets && mongoBets.length > 0 ? mongoBets : db.bets;
+    const betsList = mongoBets && mongoBets.length > 0 ? mongoBets : db.bets || [];
+    if (mongoBets && mongoBets.length > 0) {
+      db.bets = mongoBets;
+    }
     const txsList = mongoTxs && mongoTxs.length > 0 ? mongoTxs : db.transactions || [];
     const rawUsers = mongoUsers && mongoUsers.length > 0 ? mongoUsers : db.users.filter((u) => u.role !== "admin" && u.username !== "admin");
     const usersList = enrichUsersWithFinancials(rawUsers, depositsList, withdrawalsList, betsList, txsList);

@@ -40,12 +40,6 @@ export async function connectMongoDB(uri?: string): Promise<boolean> {
     return connectPromise;
   }
 
-  // Throttle connection attempts if recently failed
-  if (Date.now() - lastConnectAttempt < 4000) {
-    return false;
-  }
-  lastConnectAttempt = Date.now();
-
   connectPromise = (async () => {
     try {
       if (mongoose.connection.readyState === 1) {
@@ -54,8 +48,8 @@ export async function connectMongoDB(uri?: string): Promise<boolean> {
       }
 
       await mongoose.connect(mongoUri, {
-        serverSelectionTimeoutMS: 5000,
-        connectTimeoutMS: 5000,
+        serverSelectionTimeoutMS: 8000,
+        connectTimeoutMS: 8000,
         maxPoolSize: 10,
       });
 
