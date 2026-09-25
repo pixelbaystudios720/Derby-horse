@@ -895,40 +895,27 @@ app.post('/api/auth/login', async (req, res) => {
       u.id.toLowerCase() === query
   );
 
-  // 2. Database lookup if not found in memory
+  // 2. Database lookup if not found in memory (direct indexed B-tree lookups for 1ms response)
   if (!user) {
     try {
-      const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const safeRegex = new RegExp(`^${safeQuery}$`, 'i');
-
-      const mongoLookup = async () => {
-        await Promise.race([
-          ensureMongoConnected(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Mongo timeout')), 2500))
-        ]);
-        return await UserModel.findOne({
-          $or: [
-            { username: { $regex: safeRegex } },
-            { email: { $regex: safeRegex } },
-            { phone: query },
-            { phone: String(username).trim() },
-            { ref_id: { $regex: safeRegex } },
-            { id: query },
-          ],
-        }).lean();
-      };
-
-      const mongoUser = await Promise.race([
-        mongoLookup(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
-      ]);
+      await ensureMongoConnected();
+      const mongoUser = await UserModel.findOne({
+        $or: [
+          { username: query },
+          { email: query },
+          { phone: query },
+          { phone: String(username).trim() },
+          { ref_id: query.toUpperCase() },
+          { id: query },
+        ],
+      }).lean();
 
       if (mongoUser) {
         user = mongoUser as any;
         if (!db.users.find((u) => u.id === user!.id)) db.users.push(user!);
       }
     } catch (e) {
-      console.error('Mongo login lookup error:', e);
+      console.warn('Mongo login lookup note:', e);
     }
   }
 

@@ -244,6 +244,7 @@ export const api = {
     const data = await safeParseJson(res, 'Sign up failed. Please check inputs and try again.');
     localStorage.setItem('derby_token', data.token);
     localStorage.setItem('derby_user', JSON.stringify(data.user));
+    financialSync.broadcast();
     return data;
   },
 
@@ -261,6 +262,7 @@ export const api = {
       const data = await safeParseJson(res, 'Invalid username or password.');
       localStorage.setItem('derby_token', data.token);
       localStorage.setItem('derby_user', JSON.stringify(data.user));
+      financialSync.broadcast();
       return data;
     } catch (err: any) {
       clearTimeout(timeoutId);

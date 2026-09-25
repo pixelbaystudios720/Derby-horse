@@ -13,8 +13,10 @@ import {
 } from './index';
 
 let isConnected = false;
-let connectPromise: Promise<boolean> | null = null;
-let lastConnectAttempt = 0;
+let cached = (global as any).mongoose;
+if (!cached) {
+  cached = (global as any).mongoose = { conn: null, promise: null };
+}
 
 export let lastMongoError: string | null = null;
 
@@ -26,49 +28,43 @@ export async function connectMongoDB(uri?: string): Promise<boolean> {
     process.env.MONGO_URL ||
     fallbackUri;
 
-  if (!mongoUri) {
-    lastMongoError = 'No MongoDB URI provided';
-    return false;
-  }
-
-  if (mongoose.connection.readyState === 1) {
+  if (mongoose.connection.readyState === 1 || cached.conn) {
     isConnected = true;
     return true;
   }
 
-  if (connectPromise) {
-    return connectPromise;
+  if (!cached.promise) {
+    const opts = {
+      bufferCommands: false,
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      maxPoolSize: 10,
+      minPoolSize: 1,
+    };
+    cached.promise = mongoose.connect(mongoUri, opts).then((instance) => {
+      isConnected = true;
+      cached.conn = instance;
+      lastMongoError = null;
+      return instance;
+    }).catch((err) => {
+      lastMongoError = err.message;
+      cached.promise = null;
+      throw err;
+    });
   }
 
-  connectPromise = (async () => {
-    try {
-      if (mongoose.connection.readyState === 1) {
-        isConnected = true;
-        return true;
-      }
-
-      await mongoose.connect(mongoUri, {
-        serverSelectionTimeoutMS: 8000,
-        connectTimeoutMS: 8000,
-        maxPoolSize: 10,
-      });
-
-      isConnected = true;
-      lastMongoError = null;
-      console.log('✅ Connected to MongoDB Atlas successfully! Collections active: users, otps, races, bets, etc.');
-      return true;
-    } catch (err: any) {
-      lastMongoError = `${err.name}: ${err.message}`;
-      console.error('⚠️ MongoDB connection error:', err.message);
-      isConnected = false;
-      return false;
-    } finally {
-      connectPromise = null;
-    }
-  })();
-
-  return connectPromise;
+  try {
+    await cached.promise;
+    return true;
+  } catch (err: any) {
+    console.warn('⚠️ MongoDB connection warning:', err.message);
+    return false;
+  }
 }
+
+// Background eager connection
+connectMongoDB().catch(() => {});
 
 export function isMongoDBConnected(): boolean {
   return mongoose.connection.readyState === 1;

@@ -276,48 +276,48 @@ var NotificationModel = import_mongoose.default.models.Notification || import_mo
 
 // src/models/db.ts
 var isConnected = false;
-var connectPromise = null;
+var cached = global.mongoose;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
 var lastMongoError = null;
 async function connectMongoDB(uri) {
   const fallbackUri = Buffer.from("bW9uZ29kYitzcnY6Ly90dXJmdGFjdGljczIwMjZfZGJfdXNlcjpUdXJmdGFjdGljczIwMjZAY2x1c3RlcmhvcnNlLm14d2dvemUubW9uZ29kYi5uZXQvZGVyYnliZXQ/cmV0cnlXcml0ZXM9dHJ1ZSZ3PW1ham9yaXR5JmFwcE5hbWU9Q2x1c3RlckhvcnNl", "base64").toString("utf-8");
   const mongoUri = uri || process.env.MONGODB_URI || process.env.MONGO_URL || fallbackUri;
-  if (!mongoUri) {
-    lastMongoError = "No MongoDB URI provided";
-    return false;
-  }
-  if (import_mongoose2.default.connection.readyState === 1) {
+  if (import_mongoose2.default.connection.readyState === 1 || cached.conn) {
     isConnected = true;
     return true;
   }
-  if (connectPromise) {
-    return connectPromise;
-  }
-  connectPromise = (async () => {
-    try {
-      if (import_mongoose2.default.connection.readyState === 1) {
-        isConnected = true;
-        return true;
-      }
-      await import_mongoose2.default.connect(mongoUri, {
-        serverSelectionTimeoutMS: 8e3,
-        connectTimeoutMS: 8e3,
-        maxPoolSize: 10
-      });
+  if (!cached.promise) {
+    const opts = {
+      bufferCommands: false,
+      serverSelectionTimeoutMS: 5e3,
+      connectTimeoutMS: 5e3,
+      socketTimeoutMS: 45e3,
+      maxPoolSize: 10,
+      minPoolSize: 1
+    };
+    cached.promise = import_mongoose2.default.connect(mongoUri, opts).then((instance) => {
       isConnected = true;
+      cached.conn = instance;
       lastMongoError = null;
-      console.log("\u2705 Connected to MongoDB Atlas successfully! Collections active: users, otps, races, bets, etc.");
-      return true;
-    } catch (err) {
-      lastMongoError = `${err.name}: ${err.message}`;
-      console.error("\u26A0\uFE0F MongoDB connection error:", err.message);
-      isConnected = false;
-      return false;
-    } finally {
-      connectPromise = null;
-    }
-  })();
-  return connectPromise;
+      return instance;
+    }).catch((err) => {
+      lastMongoError = err.message;
+      cached.promise = null;
+      throw err;
+    });
+  }
+  try {
+    await cached.promise;
+    return true;
+  } catch (err) {
+    console.warn("\u26A0\uFE0F MongoDB connection warning:", err.message);
+    return false;
+  }
 }
+connectMongoDB().catch(() => {
+});
 function isMongoDBConnected() {
   return import_mongoose2.default.connection.readyState === 1;
 }
@@ -1204,34 +1204,23 @@ app.post("/api/auth/login", async (req, res) => {
   );
   if (!user) {
     try {
-      const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const safeRegex = new RegExp(`^${safeQuery}$`, "i");
-      const mongoLookup = async () => {
-        await Promise.race([
-          ensureMongoConnected(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Mongo timeout")), 2500))
-        ]);
-        return await UserModel.findOne({
-          $or: [
-            { username: { $regex: safeRegex } },
-            { email: { $regex: safeRegex } },
-            { phone: query },
-            { phone: String(username).trim() },
-            { ref_id: { $regex: safeRegex } },
-            { id: query }
-          ]
-        }).lean();
-      };
-      const mongoUser = await Promise.race([
-        mongoLookup(),
-        new Promise((resolve) => setTimeout(() => resolve(null), 3e3))
-      ]);
+      await ensureMongoConnected();
+      const mongoUser = await UserModel.findOne({
+        $or: [
+          { username: query },
+          { email: query },
+          { phone: query },
+          { phone: String(username).trim() },
+          { ref_id: query.toUpperCase() },
+          { id: query }
+        ]
+      }).lean();
       if (mongoUser) {
         user = mongoUser;
         if (!db.users.find((u) => u.id === user.id)) db.users.push(user);
       }
     } catch (e) {
-      console.error("Mongo login lookup error:", e);
+      console.warn("Mongo login lookup note:", e);
     }
   }
   if (!user) {
