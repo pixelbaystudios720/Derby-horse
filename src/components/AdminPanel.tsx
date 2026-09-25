@@ -860,38 +860,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     };
   }, []);
 
+  const [approvingDepositId, setApprovingDepositId] = useState<string | null>(null);
+  const [rejectingDepositId, setRejectingDepositId] = useState<string | null>(null);
+
   // Financial Handlers
   const handleApproveDeposit = async (id: string) => {
+    if (approvingDepositId) return;
+    setApprovingDepositId(id);
+
+    // ⚡ 0ms ZERO-FLICKER OPTIMISTIC UPDATE: Mark as approved instantly
+    setDepositRequests((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, status: 'APPROVED', reviewed_at: new Date().toISOString() } : d))
+    );
+
     try {
-      setIsLoading(true);
-      const res = await api.approveDepositRequest(id);
       soundManager.playWinPayout();
-      setActionMessage(`💰 ${res.message}`);
-      await loadAdminData();
+      const res = await api.approveDepositRequest(id);
+      notify(`💰 ${res.message}`, 'success');
+      await loadAdminData(true);
       await onRefreshData();
-      setTimeout(() => setActionMessage(null), 4000);
     } catch (err: any) {
-      setActionMessage(err.message || 'Failed to approve deposit');
-      setTimeout(() => setActionMessage(null), 3500);
+      notify(err.message || 'Failed to approve deposit', 'error');
+      await loadAdminData(true);
     } finally {
-      setIsLoading(false);
+      setApprovingDepositId(null);
     }
   };
 
   const handleRejectDeposit = async (id: string) => {
+    if (rejectingDepositId) return;
     const reason = window.prompt('Enter rejection reason (optional):', 'UTR or payment screenshot could not be verified.');
     if (reason === null) return;
+    
+    setRejectingDepositId(id);
+    // ⚡ 0ms ZERO-FLICKER OPTIMISTIC UPDATE: Mark as rejected instantly
+    setDepositRequests((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, status: 'REJECTED', admin_notes: reason, reviewed_at: new Date().toISOString() } : d))
+    );
+
     try {
-      setIsLoading(true);
+      soundManager.playClick();
       const res = await api.rejectDepositRequest(id, reason);
-      setActionMessage(`❌ ${res.message}`);
-      await loadAdminData();
-      setTimeout(() => setActionMessage(null), 4000);
+      notify(`❌ ${res.message}`, 'warning');
+      await loadAdminData(true);
     } catch (err: any) {
-      setActionMessage(err.message || 'Failed to reject deposit');
-      setTimeout(() => setActionMessage(null), 3500);
+      notify(err.message || 'Failed to reject deposit', 'error');
+      await loadAdminData(true);
     } finally {
-      setIsLoading(false);
+      setRejectingDepositId(null);
     }
   };
 
@@ -7798,20 +7814,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-900">
                             <button
                               type="button"
+                              disabled={rejectingDepositId === dep.id || approvingDepositId === dep.id}
                               onClick={() => handleRejectDeposit(dep.id)}
-                              className="px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+                              className={`px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-bold transition flex items-center gap-1.5 ${
+                                rejectingDepositId === dep.id || approvingDepositId === dep.id ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'
+                              }`}
                             >
                               <X className="w-3.5 h-3.5" />
-                              <span>Reject</span>
+                              <span>{rejectingDepositId === dep.id ? 'Rejecting...' : 'Reject'}</span>
                             </button>
 
                             <button
                               type="button"
+                              disabled={approvingDepositId === dep.id || rejectingDepositId === dep.id}
                               onClick={() => handleApproveDeposit(dep.id)}
-                              className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black transition cursor-pointer flex items-center gap-1.5 shadow-lg"
+                              className={`px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-black transition flex items-center gap-1.5 shadow-lg ${
+                                approvingDepositId === dep.id || rejectingDepositId === dep.id ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-95'
+                              }`}
                             >
-                              <Check className="w-4 h-4 stroke-[3]" />
-                              <span>Approve & Credit ₹{dep.amount.toLocaleString('en-IN')}</span>
+                              {approvingDepositId === dep.id ? (
+                                <>
+                                  <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
+                                  <span>Crediting Wallet...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="w-4 h-4 stroke-[3]" />
+                                  <span>Approve & Credit ₹{dep.amount.toLocaleString('en-IN')}</span>
+                                </>
+                              )}
                             </button>
                           </div>
                         )}
