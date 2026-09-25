@@ -21,12 +21,19 @@ if (!cached) {
 export let lastMongoError: string | null = null;
 
 export async function connectMongoDB(uri?: string): Promise<boolean> {
-  const fallbackUri = Buffer.from('bW9uZ29kYitzcnY6Ly90dXJmdGFjdGljczIwMjZfZGJfdXNlcjpUdXJmdGFjdGljczIwMjZAY2x1c3RlcmhvcnNlLm14d2dvemUubW9uZ29kYi5uZXQvZGVyYnliZXQ/cmV0cnlXcml0ZXM9dHJ1ZSZ3PW1ham9yaXR5JmFwcE5hbWU9Q2x1c3RlckhvcnNl', 'base64').toString('utf-8');
-  const mongoUri =
-    uri ||
-    process.env.MONGODB_URI ||
-    process.env.MONGO_URL ||
-    fallbackUri;
+  const isProd = process.env.NODE_ENV === 'production' || !!process.env.VERCEL || !!process.env.NOW_REGION;
+  
+  const devFallback = Buffer.from('bW9uZ29kYitzcnY6Ly90dXJmdGFjdGljczIwMjZfZGJfdXNlcjpUdXJmdGFjdGljczIwMjZAY2x1c3RlcmhvcnNlLm14d2dvemUubW9uZ29kYi5uZXQvZGVyYnliZXRfZGV2P3JldHJ5V3JpdGVzPXRydWUmdz1tYWpvcml0eSZhcHBOYW1lPUNsdXN0ZXJIb3JzZQ==', 'base64').toString('utf-8');
+  const prodFallback = Buffer.from('bW9uZ29kYitzcnY6Ly90dXJmdGFjdGljczIwMjZfZGJfdXNlcjpUdXJmdGFjdGljczIwMjZAY2x1c3RlcmhvcnNlLm14d2dvemUubW9uZ29kYi5uZXQvZGVyYnliZXRfcHJvZD9yZXRyeVdyaXRlcz10cnVlJnc9bWFqb3JpdHkmYXBwTmFtZT1DbHVzdGVySG9yc2U=', 'base64').toString('utf-8');
+
+  let mongoUri = uri;
+  if (!mongoUri) {
+    if (isProd) {
+      mongoUri = process.env.MONGODB_PROD_URI || process.env.MONGODB_URI || prodFallback;
+    } else {
+      mongoUri = process.env.MONGODB_DEV_URI || process.env.MONGODB_URI || devFallback;
+    }
+  }
 
   if (mongoose.connection.readyState === 1 || cached.conn) {
     isConnected = true;
@@ -46,6 +53,8 @@ export async function connectMongoDB(uri?: string): Promise<boolean> {
       isConnected = true;
       cached.conn = instance;
       lastMongoError = null;
+      const dbName = instance.connection.name || (isProd ? 'derbybet_prod' : 'derbybet_dev');
+      console.log(`🍃 Connected to MongoDB [${isProd ? 'PRODUCTION' : 'DEVELOPMENT'}]: ${dbName}`);
       return instance;
     }).catch((err) => {
       lastMongoError = err.message;
