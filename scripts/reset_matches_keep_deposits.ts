@@ -26,26 +26,24 @@ async function main() {
   const delBets = await BetModel.deleteMany({});
   console.log(`✅ Deleted ${delBets.deletedCount} bets.`);
 
-  // 2. Delete winnings & bets from transactions
-  console.log('🗑️ Deleting win/bet transactions...');
+  // 2. Delete non-deposit transactions for all users
+  console.log('🗑️ Deleting all non-deposit transactions across all users...');
   const delTxs = await TransactionModel.deleteMany({
-    type: { $in: ['WIN', 'BET', 'REFUND'] },
+    type: { $ne: 'DEPOSIT' },
   });
   console.log(`✅ Deleted ${delTxs.deletedCount} non-deposit transactions.`);
 
-  // 3. Delete win notifications
+  // 3. Delete win/settle notifications
   try {
-    const delNotifs = await NotificationModel.deleteMany({
-      type: { $in: ['WIN_PAYOUT', 'BET_SETTLED', 'DEAD_HEAT_PAYOUT'] },
-    });
-    console.log(`✅ Deleted ${delNotifs.deletedCount} win notifications.`);
+    const delNotifs = await NotificationModel.deleteMany({});
+    console.log(`✅ Deleted ${delNotifs.deletedCount} notifications.`);
   } catch (e) {
     console.warn('Notifications:', e);
   }
 
-  // 4. Update user balances
-  console.log('💰 Setting user balances to deposited amount only...');
-  const allUsers = await UserModel.find({ username: { $ne: 'admin' } }).lean();
+  // 4. Update all user balances to exact deposited amount & generate clean deposit statement
+  console.log('💰 Setting all user balances to approved deposit amounts only...');
+  const allUsers = await UserModel.find({ username: { $ne: 'admin' } });
   const allApprovedDeposits = await DepositRequestModel.find({ status: 'APPROVED' }).lean();
 
   for (const user of allUsers) {
@@ -53,10 +51,10 @@ async function main() {
       (d) => d.user_id === user.id || d.username === user.username
     );
     const depTotal = userDeps.reduce((sum, d) => sum + (d.amount || 0), 0);
-    const finalBalance = depTotal > 0 ? (depTotal + 50) : 50;
+    const finalBalance = depTotal > 0 ? depTotal : 5000;
 
     await UserModel.updateOne(
-      { id: user.id },
+      { _id: user._id },
       {
         $set: {
           balance: finalBalance,
@@ -65,10 +63,28 @@ async function main() {
       }
     );
 
-    console.log(`✅ ${user.username} (${user.full_name || user.id}): Balance = ₹${finalBalance} (Deposits: ₹${depTotal}, Exposure: ₹0)`);
+    // Ensure a clean deposit transaction exists for the user statement ledger
+    await TransactionModel.deleteMany({
+      $or: [{ user_id: user.id }, { username: user.username }],
+    });
+
+    const depositTx = {
+      id: `tx_dep_${user.id}`,
+      user_id: user.id,
+      username: user.username,
+      type: 'DEPOSIT',
+      amount: finalBalance,
+      balance_after: finalBalance,
+      description: `Deposit Approved via UPI / NetBanking`,
+      created_at: new Date().toISOString(),
+    };
+
+    await TransactionModel.create(depositTx);
+
+    console.log(`✅ User @${user.username} (${user.id}): Balance = ₹${finalBalance} (Deposits: ₹${depTotal}, Exposure: ₹0)`);
   }
 
-  console.log('🎉 Reset Completed Successfully!');
+  console.log('🎉 ALL USERS AND MATCHES RESET COMPLETED SUCCESSFULLY!');
   await mongoose.disconnect();
   process.exit(0);
 }
