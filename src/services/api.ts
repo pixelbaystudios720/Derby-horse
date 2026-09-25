@@ -406,13 +406,34 @@ export const api = {
 
     try {
       const cached = localStorage.getItem('derby_race_centers');
-      if (cached) return JSON.parse(cached);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
     } catch {}
 
+    localStorage.setItem('derby_race_centers', JSON.stringify(DEFAULT_RACE_CENTERS));
     return DEFAULT_RACE_CENTERS;
   },
 
-  async createRaceCenter(data: Partial<RaceCenter>): Promise<{ success: boolean; message: string; center: RaceCenter }> {
+  async seedDefaultRaceCenters(): Promise<{ success: boolean; message: string; centers: RaceCenter[] }> {
+    try {
+      const res = await fetch(`${API_BASE}/admin/race-centers/seed-defaults`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (data.centers) {
+        localStorage.setItem('derby_race_centers', JSON.stringify(data.centers));
+      }
+      return data;
+    } catch (e: any) {
+      localStorage.setItem('derby_race_centers', JSON.stringify(DEFAULT_RACE_CENTERS));
+      return { success: true, message: 'Restored default Indian Race Centers', centers: DEFAULT_RACE_CENTERS };
+    }
+  },
+
+  async createRaceCenter(data: Partial<RaceCenter>): Promise<{ success: boolean; message: string; center: RaceCenter; centers?: RaceCenter[] }> {
     try {
       const res = await fetch(`${API_BASE}/admin/race-centers`, {
         method: 'POST',
@@ -421,8 +442,14 @@ export const api = {
       });
       const resData = await res.json();
       if (!res.ok) throw new Error(resData.error || 'Failed to create Race Center');
+      if (resData.centers) {
+        localStorage.setItem('derby_race_centers', JSON.stringify(resData.centers));
+      }
       return resData;
     } catch (e: any) {
+      if (e.message && e.message.includes('already exists')) {
+        throw e;
+      }
       const newCenter: RaceCenter = {
         id: `cntr_${Date.now()}`,
         name: (data.name || '').toUpperCase().trim(),
@@ -435,7 +462,7 @@ export const api = {
       const centers = await this.getRaceCenters(true);
       centers.push(newCenter);
       localStorage.setItem('derby_race_centers', JSON.stringify(centers));
-      return { success: true, message: `Race Center "${newCenter.name}" created!`, center: newCenter };
+      return { success: true, message: `Race Center "${newCenter.name}" created!`, center: newCenter, centers };
     }
   },
 

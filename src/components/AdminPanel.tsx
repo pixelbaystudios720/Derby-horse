@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api, financialSync } from '../services/api';
+import { api, financialSync, DEFAULT_RACE_CENTERS } from '../services/api';
 import { soundManager } from '../utils/audio';
 import { getRaceBettingCloseStatus, formatAutoCloseTime } from '../utils/raceTiming';
 import { Banner, Bet, Horse, Race, RaceCenter, RaceDay, RaceStatus, User, DepositRequest, WithdrawalRequest, DepositStatus, WithdrawalStatus, Transaction } from '../types';
@@ -238,7 +238,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
 
   // Masters: Level 1 (Centers) & Level 2 (Race Days) state
-  const [raceCenters, setRaceCenters] = useState<RaceCenter[]>([]);
+  const [raceCenters, setRaceCenters] = useState<RaceCenter[]>(() => {
+    try {
+      const cached = localStorage.getItem('derby_race_centers');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_RACE_CENTERS;
+  });
   const [raceDays, setRaceDays] = useState<RaceDay[]>([]);
   const [selectedManageCenterId, setSelectedManageCenterId] = useState<string>(() => {
     try {
@@ -723,16 +732,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         if (Array.isArray(bootstrap.withdrawals)) {
           setWithdrawalRequests((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.withdrawals) ? prev : bootstrap.withdrawals));
         }
-        if (Array.isArray(bootstrap.race_centers) && bootstrap.race_centers.length > 0) {
-          setRaceCenters((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.race_centers) ? prev : bootstrap.race_centers));
-          if (!isBackground) {
-            const savedCenterId = (typeof window !== 'undefined' ? localStorage.getItem('derby_admin_selected_center') : null) || bootstrap.race_centers[0].id;
-            const targetCenter = bootstrap.race_centers.find(c => c.id === savedCenterId) || bootstrap.race_centers[0];
-            setSelectedManageCenterId((prev) => prev || targetCenter.id);
-            setNewDayCenterId((prev) => prev || targetCenter.id);
-            setNewRaceCenterId((prev) => prev || targetCenter.id);
-            setNewVenue((prev) => (prev && prev !== 'Hyderabad Race Club' ? prev : `${targetCenter.name} Turf Club`));
-          }
+        const validCenters = (Array.isArray(bootstrap.race_centers) && bootstrap.race_centers.length > 0)
+          ? bootstrap.race_centers
+          : DEFAULT_RACE_CENTERS;
+        setRaceCenters((prev) => (JSON.stringify(prev) === JSON.stringify(validCenters) ? prev : validCenters));
+        if (!isBackground) {
+          const savedCenterId = (typeof window !== 'undefined' ? localStorage.getItem('derby_admin_selected_center') : null) || validCenters[0].id;
+          const targetCenter = validCenters.find(c => c.id === savedCenterId) || validCenters[0];
+          setSelectedManageCenterId((prev) => prev || targetCenter.id);
+          setNewDayCenterId((prev) => prev || targetCenter.id);
+          setNewRaceCenterId((prev) => prev || targetCenter.id);
+          setNewVenue((prev) => (prev && prev !== 'Hyderabad Race Club' ? prev : `${targetCenter.name} Turf Club`));
         }
         if (Array.isArray(bootstrap.race_days)) {
           setRaceDays((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.race_days) ? prev : bootstrap.race_days));
@@ -781,16 +791,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       if (resWithdrawals.status === 'fulfilled' && Array.isArray(resWithdrawals.value)) {
         setWithdrawalRequests((prev) => (JSON.stringify(prev) === JSON.stringify(resWithdrawals.value) ? prev : resWithdrawals.value));
       }
-      if (resCenters.status === 'fulfilled' && Array.isArray(resCenters.value) && resCenters.value.length > 0) {
-        setRaceCenters((prev) => (JSON.stringify(prev) === JSON.stringify(resCenters.value) ? prev : resCenters.value));
-        if (!isBackground) {
-          const savedCenterId = (typeof window !== 'undefined' ? localStorage.getItem('derby_admin_selected_center') : null) || resCenters.value[0].id;
-          const targetCenter = resCenters.value.find(c => c.id === savedCenterId) || resCenters.value[0];
-          setSelectedManageCenterId((prev) => prev || targetCenter.id);
-          setNewDayCenterId((prev) => prev || targetCenter.id);
-          setNewRaceCenterId((prev) => prev || targetCenter.id);
-          setNewVenue((prev) => (prev && prev !== 'Hyderabad Race Club' ? prev : `${targetCenter.name} Turf Club`));
-        }
+      const rawCenters = (resCenters.status === 'fulfilled' && Array.isArray(resCenters.value) && resCenters.value.length > 0)
+        ? resCenters.value
+        : DEFAULT_RACE_CENTERS;
+      setRaceCenters((prev) => (JSON.stringify(prev) === JSON.stringify(rawCenters) ? prev : rawCenters));
+      if (!isBackground) {
+        const savedCenterId = (typeof window !== 'undefined' ? localStorage.getItem('derby_admin_selected_center') : null) || rawCenters[0].id;
+        const targetCenter = rawCenters.find(c => c.id === savedCenterId) || rawCenters[0];
+        setSelectedManageCenterId((prev) => prev || targetCenter.id);
+        setNewDayCenterId((prev) => prev || targetCenter.id);
+        setNewRaceCenterId((prev) => prev || targetCenter.id);
+        setNewVenue((prev) => (prev && prev !== 'Hyderabad Race Club' ? prev : `${targetCenter.name} Turf Club`));
       }
       if (resDays.status === 'fulfilled' && Array.isArray(resDays.value)) {
         setRaceDays((prev) => (JSON.stringify(prev) === JSON.stringify(resDays.value) ? prev : resDays.value));
@@ -1354,27 +1365,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleCreateCenter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCenterName.trim() || !newCenterCode.trim()) {
+      notify('Please enter center name and code', 'error');
       setActionMessage('Please enter center name and code');
       return;
     }
     try {
       setIsLoading(true);
       const res = await api.createRaceCenter({
-        name: newCenterName,
-        code: newCenterCode,
-        city: newCenterCity || newCenterName,
+        name: newCenterName.trim().toUpperCase(),
+        code: newCenterCode.trim().toUpperCase(),
+        city: newCenterCity.trim() || newCenterName.trim(),
         is_active: true,
       });
       soundManager.playClick();
+      notify(`🏟 ${res.message}`, 'success');
       setActionMessage(`🏟 ${res.message}`);
       setNewCenterName('');
       setNewCenterCode('');
       setNewCenterCity('');
+      setShowAddCenterForm(false);
+      
+      if (res.center && res.center.id) {
+        handleSelectCenter(res.center.id);
+      }
       await loadAdminData();
       setTimeout(() => setActionMessage(null), 3500);
     } catch (err: any) {
+      notify(err.message || 'Failed to create center', 'error');
       setActionMessage(err.message || 'Failed to create center');
       setTimeout(() => setActionMessage(null), 3500);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRestoreDefaultCenters = async () => {
+    try {
+      setIsLoading(true);
+      const res = await api.seedDefaultRaceCenters();
+      soundManager.playClick();
+      notify(`✅ ${res.message}`, 'success');
+      await loadAdminData();
+    } catch (err: any) {
+      notify(err.message || 'Failed to restore default centers', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -4933,91 +4966,123 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             {/* LEVEL 1: RACE CENTERS (DROPDOWN SELECTOR & CONTROLS) */}
             <div className="lg:col-span-5 space-y-4">
               <div className="bg-slate-900 rounded-2xl border border-slate-800 p-4 space-y-4 shadow-sm">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
                   <h3 className="text-sm font-black text-white flex items-center gap-2">
                     <Flag className="w-4 h-4 text-emerald-400" />
                     <span>Level 1 - Race Center Selector</span>
                   </h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddCenterForm(prev => !prev)}
-                    className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 cursor-pointer bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-800/60"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>{showAddCenterForm ? 'Close Form' : '+ Add New Center'}</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleRestoreDefaultCenters}
+                      title="Restore Mysore, Bangalore, Hyderabad, Pune, Mumbai, etc."
+                      className="text-[11px] font-bold text-slate-400 hover:text-white transition flex items-center gap-1 cursor-pointer bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-lg border border-slate-700"
+                    >
+                      <RotateCcw className="w-3 h-3 text-cyan-400" />
+                      <span className="hidden sm:inline">Reset Standard</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCenterForm(prev => !prev)}
+                      className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 cursor-pointer bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-800/60"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>{showAddCenterForm ? 'Close Form' : '+ Add New Center'}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Optional Collapsible Add Center Form */}
                 {showAddCenterForm && (
-                  <form onSubmit={handleCreateCenter} className="bg-slate-950 p-3 rounded-xl border border-emerald-500/30 space-y-2.5 text-xs animate-in fade-in duration-200">
-                    <span className="text-[11px] font-bold text-emerald-400 block">+ Add New Race Center</span>
+                  <form onSubmit={handleCreateCenter} className="bg-slate-950 p-3.5 rounded-xl border border-emerald-500/40 space-y-3 text-xs animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-emerald-400 flex items-center gap-1.5">
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add New Custom Race Center</span>
+                      </span>
+                      <span className="text-[10px] text-slate-400">Persists to Database</span>
+                    </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-[10px] text-slate-400 mb-0.5">Center Name *</label>
                         <input
                           type="text"
                           required
-                          placeholder="e.g. MYSORE"
+                          placeholder="e.g. HYDERABAD"
                           value={newCenterName}
                           onChange={(e) => setNewCenterName(e.target.value)}
-                          className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold text-xs uppercase"
+                          className="w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold text-xs uppercase focus:border-emerald-400 outline-none"
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] text-slate-400 mb-0.5">Code *</label>
+                        <label className="block text-[10px] text-slate-400 mb-0.5">Code (3-4 chars) *</label>
                         <input
                           type="text"
                           required
-                          placeholder="e.g. MYS"
+                          maxLength={6}
+                          placeholder="e.g. HYD"
                           value={newCenterCode}
                           onChange={(e) => setNewCenterCode(e.target.value)}
-                          className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono font-bold text-xs uppercase"
+                          className="w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-mono font-bold text-xs uppercase focus:border-emerald-400 outline-none"
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-[10px] text-slate-400 mb-0.5">City / Region</label>
+                      <label className="block text-[10px] text-slate-400 mb-0.5">City / Region (Optional)</label>
                       <input
                         type="text"
-                        placeholder="e.g. Mysore, Karnataka"
+                        placeholder="e.g. Hyderabad, Telangana"
                         value={newCenterCity}
                         onChange={(e) => setNewCenterCity(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs"
+                        className="w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-xs focus:border-emerald-400 outline-none"
                       />
                     </div>
-                    <button
-                      type="submit"
-                      disabled={isLoading}
-                      className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-1 shadow"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Create Race Center</span>
-                    </button>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCenterForm(false)}
+                        className="flex-1 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isLoading}
+                        className="flex-2 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer flex items-center justify-center gap-1 shadow-md shadow-emerald-950/40"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Save & Add to Dropdown</span>
+                      </button>
+                    </div>
                   </form>
                 )}
 
                 {/* Dropdown Center Selector & Current Details */}
                 {(() => {
-                  const currentCenterId = selectedManageCenterId || newRaceCenterId || (raceCenters && raceCenters[0]?.id) || 'cntr_mysore';
-                  const currentCenter = (raceCenters || []).find(c => c.id === currentCenterId) || raceCenters[0];
+                  const availableCenters = (raceCenters && raceCenters.length > 0) ? raceCenters : DEFAULT_RACE_CENTERS;
+                  const currentCenterId = selectedManageCenterId || newRaceCenterId || availableCenters[0]?.id || 'cntr_mysore';
+                  const currentCenter = availableCenters.find(c => c.id === currentCenterId) || availableCenters[0];
                   const centerRaces = currentCenter ? (races || []).filter(r => r.center_id === currentCenter.id || (r.venue && r.venue.toLowerCase().includes(currentCenter.name.toLowerCase()))) : [];
 
                   return (
                     <div className="space-y-3">
                       <div>
                         <label className="block text-[11px] font-bold text-slate-300 mb-1 flex items-center justify-between">
-                          <span>Select Center from Dropdown:</span>
-                          <span className="text-[10px] text-emerald-400 font-mono">{(raceCenters || []).length} Available Venues</span>
+                          <span className="flex items-center gap-1.5 text-slate-200">
+                            <span>Select Center from Dropdown:</span>
+                          </span>
+                          <span className="text-[10px] text-emerald-400 font-mono font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">
+                            {availableCenters.length} Available Venues
+                          </span>
                         </label>
                         <select
                           value={currentCenterId}
                           onChange={(e) => handleSelectCenter(e.target.value)}
-                          className="w-full px-3 py-2.5 bg-slate-950 border-2 border-emerald-500/40 rounded-xl text-white font-bold text-sm focus:border-emerald-400 outline-none transition cursor-pointer"
+                          className="w-full px-3 py-2.5 bg-slate-950 border-2 border-emerald-500/50 rounded-xl text-white font-bold text-sm focus:border-emerald-400 outline-none transition cursor-pointer shadow-inner"
                         >
-                          {(raceCenters || []).map((c) => (
+                          {availableCenters.map((c) => (
                             <option key={c.id} value={c.id} className="bg-slate-950 text-white py-1">
-                              {c.name} ({c.code}) — {c.city || 'India'}
+                              {c.name} ({c.code}) — {c.city || c.name} {c.is_active ? '' : '(Inactive)'}
                             </option>
                           ))}
                         </select>
@@ -5103,8 +5168,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         onChange={(e) => handleSelectCenter(e.target.value)}
                         className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold text-xs"
                       >
-                        {(raceCenters || []).map(c => (
-                          <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                        {((raceCenters && raceCenters.length > 0) ? raceCenters : DEFAULT_RACE_CENTERS).map(c => (
+                          <option key={c.id} value={c.id}>{c.name} ({c.code}) — {c.city || c.name}</option>
                         ))}
                       </select>
                     </div>
@@ -5277,8 +5342,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 onChange={(e) => handleSelectCenter(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs sm:text-sm font-bold focus:outline-none focus:border-emerald-500"
               >
-                {(raceCenters || []).map(c => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.code}) - {c.city}</option>
+                {((raceCenters && raceCenters.length > 0) ? raceCenters : DEFAULT_RACE_CENTERS).map(c => (
+                  <option key={c.id} value={c.id}>{c.name} ({c.code}) — {c.city || c.name}</option>
                 ))}
               </select>
             </div>
@@ -9356,14 +9421,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     onChange={(e) => {
                       const val = e.target.value;
                       setEditRaceCenterId(val);
-                      const center = raceCenters.find(c => c.id === val);
+                      const available = (raceCenters && raceCenters.length > 0) ? raceCenters : DEFAULT_RACE_CENTERS;
+                      const center = available.find(c => c.id === val);
                       if (center) setEditVenue(`${center.name} Turf Club`);
                     }}
                     className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs sm:text-sm font-bold focus:outline-none focus:border-emerald-500"
                   >
                     <option value="">-- Select Center --</option>
-                    {(raceCenters || []).map(c => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                    {((raceCenters && raceCenters.length > 0) ? raceCenters : DEFAULT_RACE_CENTERS).map(c => (
+                      <option key={c.id} value={c.id}>{c.name} ({c.code}) — {c.city || c.name}</option>
                     ))}
                   </select>
                 </div>
@@ -10601,8 +10667,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   onChange={(e) => setEditDayCenterId(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white font-bold text-xs focus:outline-none focus:border-amber-500"
                 >
-                  {(raceCenters || []).map(c => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                  {((raceCenters && raceCenters.length > 0) ? raceCenters : DEFAULT_RACE_CENTERS).map(c => (
+                    <option key={c.id} value={c.id}>{c.name} ({c.code}) — {c.city || c.name}</option>
                   ))}
                 </select>
               </div>

@@ -1441,38 +1441,87 @@ app.post("/api/auth/forgot-password/reset", async (req, res) => {
     return res.status(500).json({ error: err.message || "Failed to reset password" });
   }
 });
-app.get("/api/race-centers", async (req, res) => {
-  const showAll = req.query.all === "true";
+async function getOrSeedRaceCenters() {
   try {
     await ensureMongoConnected();
+    let mongoCenters = await RaceCenterModel.find({}).sort({ order: 1, created_at: 1 }).lean();
+    if (!mongoCenters || mongoCenters.length === 0) {
+      console.log("\u{1F331} Seeding default Indian Race Centers into MongoDB Atlas...");
+      for (const center of defaultData.race_centers) {
+        await RaceCenterModel.findOneAndUpdate(
+          { id: center.id },
+          { $set: center },
+          { upsert: true, new: true }
+        ).catch(() => {
+        });
+      }
+      mongoCenters = await RaceCenterModel.find({}).sort({ order: 1, created_at: 1 }).lean();
+    }
+    if (mongoCenters && mongoCenters.length > 0) {
+      db.race_centers = mongoCenters;
+      return db.race_centers;
+    }
+  } catch (err) {
+    console.warn("Mongo fetch race-centers fallback to default/in-memory:", err);
+  }
+  if (!db.race_centers || db.race_centers.length === 0) {
+    db.race_centers = [...defaultData.race_centers];
+  }
+  return db.race_centers;
+}
+app.get("/api/race-centers", async (req, res) => {
+  const showAll = req.query.all === "true";
+  const allCenters = await getOrSeedRaceCenters();
+  const centers = showAll ? allCenters : allCenters.filter((c) => c.is_active);
+  return res.json({ success: true, centers });
+});
+app.post("/api/admin/race-centers/seed-defaults", async (req, res) => {
+  try {
+    await ensureMongoConnected();
+    for (const center of defaultData.race_centers) {
+      await RaceCenterModel.findOneAndUpdate(
+        { id: center.id },
+        { $set: center },
+        { upsert: true, new: true }
+      ).catch(() => {
+      });
+    }
     const mongoCenters = await RaceCenterModel.find({}).sort({ order: 1, created_at: 1 }).lean();
     if (mongoCenters && mongoCenters.length > 0) {
       db.race_centers = mongoCenters;
     }
+    saveDatabase();
+    return res.json({
+      success: true,
+      message: "Restored all default Indian Race Centers (Mysore, Bangalore, Hyderabad, Pune, Mumbai, etc.)",
+      centers: db.race_centers
+    });
   } catch (err) {
-    console.warn("Mongo fetch race-centers fallback to in-memory:", err);
+    return res.status(500).json({ error: err.message || "Failed to restore default centers" });
   }
-  const centers = showAll ? db.race_centers : db.race_centers.filter((c) => c.is_active);
-  return res.json({ success: true, centers });
 });
 app.post("/api/admin/race-centers", async (req, res) => {
   const { name, code, city, is_active } = req.body;
   if (!name || !code) {
     return res.status(400).json({ error: "Center Name and Code are required" });
   }
-  const existing = db.race_centers.find(
-    (c) => c.name.toLowerCase() === String(name).trim().toLowerCase() || c.code.toLowerCase() === String(code).trim().toLowerCase()
+  const cleanName = String(name).trim().toUpperCase();
+  const cleanCode = String(code).trim().toUpperCase();
+  const cleanCity = city ? String(city).trim() : cleanName;
+  const currentCenters = await getOrSeedRaceCenters();
+  const existing = currentCenters.find(
+    (c) => c.name.toUpperCase() === cleanName || c.code.toUpperCase() === cleanCode
   );
   if (existing) {
-    return res.status(400).json({ error: `Race Center "${name}" or code "${code}" already exists` });
+    return res.status(400).json({ error: `Race Center "${cleanName}" or code "${cleanCode}" already exists` });
   }
   const newCenter = {
-    id: generateId("cntr"),
-    name: String(name).trim().toUpperCase(),
-    code: String(code).trim().toUpperCase(),
-    city: city ? String(city).trim() : String(name).trim(),
+    id: `cntr_${cleanCode.toLowerCase()}_${Date.now().toString(36)}`,
+    name: cleanName,
+    code: cleanCode,
+    city: cleanCity,
     is_active: is_active !== void 0 ? Boolean(is_active) : true,
-    order: db.race_centers.length + 1,
+    order: currentCenters.length + 1,
     created_at: (/* @__PURE__ */ new Date()).toISOString()
   };
   db.race_centers.push(newCenter);
@@ -1480,11 +1529,18 @@ app.post("/api/admin/race-centers", async (req, res) => {
   try {
     await ensureMongoConnected();
     await RaceCenterModel.findOneAndUpdate({ id: newCenter.id }, newCenter, { upsert: true, new: true });
-  } catch {
+  } catch (err) {
+    console.warn("MongoDB RaceCenter create error:", err);
   }
-  return res.json({ success: true, message: `Race Center "${newCenter.name}" added successfully!`, center: newCenter });
+  return res.json({
+    success: true,
+    message: `Race Center "${newCenter.name}" (${newCenter.code}) added successfully!`,
+    center: newCenter,
+    centers: db.race_centers
+  });
 });
 app.put("/api/admin/race-centers/:id", async (req, res) => {
+  await getOrSeedRaceCenters();
   const center = db.race_centers.find((c) => c.id === req.params.id);
   if (!center) return res.status(404).json({ error: "Race Center not found" });
   if (req.body.name) center.name = String(req.body.name).trim().toUpperCase();
@@ -1502,6 +1558,7 @@ app.put("/api/admin/race-centers/:id", async (req, res) => {
 });
 app.delete("/api/admin/race-centers/:id", async (req, res) => {
   const { id } = req.params;
+  await getOrSeedRaceCenters();
   const center = db.race_centers.find((c) => c.id === id);
   if (!center) return res.status(404).json({ error: "Race Center not found" });
   db.race_centers = db.race_centers.filter((c) => c.id !== id);
@@ -2855,6 +2912,7 @@ app.get("/api/admin/bootstrap", async (req, res) => {
       openRaces: db.races.filter((r) => r.status === "OPEN" || r.status === "LIVE" || r.status === "OPEN_FOR_BETTING").length,
       pendingBetsCount
     };
+    const finalCenters = mongoCenters && mongoCenters.length > 0 ? mongoCenters : db.race_centers && db.race_centers.length > 0 ? db.race_centers : defaultData.race_centers;
     return res.json({
       success: true,
       stats,
@@ -2862,7 +2920,7 @@ app.get("/api/admin/bootstrap", async (req, res) => {
       bets: betsList,
       deposits: depositsList,
       withdrawals: withdrawalsList,
-      race_centers: mongoCenters && mongoCenters.length > 0 ? mongoCenters : db.race_centers || [],
+      race_centers: finalCenters,
       race_days: mongoDays && mongoDays.length > 0 ? mongoDays : db.race_days || [],
       system_settings: db.system_settings || {}
     });
@@ -2883,7 +2941,7 @@ app.get("/api/admin/bootstrap", async (req, res) => {
       bets: db.bets,
       deposits: db.deposit_requests || [],
       withdrawals: db.withdrawal_requests || [],
-      race_centers: db.race_centers || [],
+      race_centers: db.race_centers && db.race_centers.length > 0 ? db.race_centers : defaultData.race_centers,
       race_days: db.race_days || [],
       system_settings: db.system_settings || {}
     });
