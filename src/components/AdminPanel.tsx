@@ -1336,30 +1336,50 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const p4 = Object.keys(settlePositions).filter((id) => settlePositions[id] === 4);
 
     if (p1.length === 0) {
+      notify('⚠️ Please select at least one horse for 1st Place', 'error');
       setActionMessage('⚠️ Please select at least one horse for 1st Place');
       setTimeout(() => setActionMessage(null), 3000);
       return;
     }
 
+    const settlingId = settlingRace.id;
+    const isDeadHeatWin = p1.length > 1;
+    const isDeadHeatPlace = p2.length > 1 || p3.length > 1;
+    const settledRaceObj: Race = {
+      ...settlingRace,
+      status: 'RESULTED',
+      winner_horse_id: p1[0] || null,
+      place_horses_ids: [...p1, ...p2, ...p3],
+      position_1: p1,
+      position_2: p2,
+      position_3: p3,
+      position_4: p4,
+      is_dead_heat: isDeadHeatWin || isDeadHeatPlace,
+      settled_at: new Date().toISOString(),
+    };
+
+    // ⚡ 1. INSTANT OPTIMISTIC UI: Disappear immediately from Live Races & open Finished Races
+    setRaces((prev) => prev.map((r) => r.id === settlingId ? settledRaceObj : r));
+    setSettlingRace(null);
+    setActiveTab('finished');
+    setAuditRace(settledRaceObj);
+
     try {
       setIsLoading(true);
-      setIsSettledSuccess(false);
-      await api.settleRace(settlingRace.id, {
+      const res = await api.settleRace(settlingId, {
         position_1: p1,
         position_2: p2,
         position_3: p3,
         position_4: p4,
       });
-      setIsSettledSuccess(true);
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      setSettlingRace(null);
-      setIsSettledSuccess(false);
+
+      soundManager.playWinPayout();
+      notify(`🏆 ${res.message}`, 'success');
       await onRefreshData();
       await loadAdminData();
-      setActiveTab('finished');
     } catch (err: any) {
       console.error('Failed to settle race:', err);
-      setIsSettledSuccess(false);
+      notify(err.message || 'Failed to settle race', 'error');
     } finally {
       setIsLoading(false);
     }

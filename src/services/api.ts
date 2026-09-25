@@ -2515,6 +2515,13 @@ export const api = {
       localStorage.setItem('derby_custom_txs', JSON.stringify(localTxs));
     } catch {}
 
+    financialSync.broadcast();
+    realtimeOdds.broadcast({
+      event: 'RACE_STATUS_CHANGED',
+      race_id: raceId,
+      timestamp: Date.now(),
+    });
+
     const winnerNames = p1.map(id => race?.horses?.find((h) => h.id === id)?.name || id).join(' & ');
     const message = isDeadHeatWin
       ? `🔥 DEAD HEAT Result Declared! 1st Place: ${winnerNames}. ${settledCount} bets settled via Dead Heat Rules (₹${totalPaidOut.toLocaleString('en-IN')} paid out).`
