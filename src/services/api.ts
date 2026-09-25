@@ -37,7 +37,7 @@ export const DEFAULT_RACE_CENTERS: RaceCenter[] = [
 // ----------------------------------------------------------------------
 export interface OddsStatusUpdatePayload {
   event: 'odds_status_update' | 'ODDS_UPDATED' | 'SUSPEND_HORSE' | 'RESUME_HORSE' | 'SUSPEND_ALL' | 'RESUME_ALL' | 'RACE_STATUS_CHANGED';
-  race_id: string;
+  race_id?: string;
   race_day_id?: string;
   center_id?: string;
   open_race_id?: string;
@@ -895,22 +895,23 @@ export const api = {
   },
 
   async getMyBets(userId: string): Promise<Bet[]> {
+    try {
+      const res = await fetch(`${API_BASE}/bets/my?user_id=${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.bets)) {
+          try { localStorage.setItem('derby_custom_bets', JSON.stringify(data.bets)); } catch {}
+          return data.bets;
+        }
+      }
+    } catch {}
+
     let localBets: Bet[] = [];
     try {
       const raw = localStorage.getItem('derby_custom_bets');
       if (raw) {
         const allBets: Bet[] = JSON.parse(raw);
         localBets = allBets.filter((b) => b.user_id === userId);
-      }
-    } catch {}
-
-    try {
-      const res = await fetch(`${API_BASE}/bets/my?user_id=${userId}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.bets)) {
-          return [...localBets, ...data.bets.filter((db: Bet) => !localBets.some((lb) => lb.id === db.id))];
-        }
       }
     } catch {}
     return localBets;
@@ -1715,54 +1716,23 @@ export const api = {
   },
 
   async getTransactions(userId: string): Promise<Transaction[]> {
+    try {
+      const res = await fetch(`${API_BASE}/wallet/transactions?user_id=${userId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.transactions)) {
+          try { localStorage.setItem('derby_custom_txs', JSON.stringify(data.transactions)); } catch {}
+          return data.transactions;
+        }
+      }
+    } catch {}
+
     let localTxs: Transaction[] = [];
     try {
       const raw = localStorage.getItem('derby_custom_txs');
       if (raw) localTxs = JSON.parse(raw);
     } catch {}
-
-    let combined: Transaction[] = [];
-    try {
-      const res = await fetch(`${API_BASE}/wallet/transactions?user_id=${userId}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.transactions) && data.transactions.length > 0) {
-          combined = [...data.transactions, ...localTxs];
-        }
-      }
-    } catch {}
-
-    if (combined.length === 0) {
-      combined = localTxs;
-    }
-
-    // Strict deduplication:
-    // 1. If reference_id is present (e.g. for WIN/REFUND/BET), allow only 1 transaction per type + reference_id
-    // 2. Otherwise deduplicate by ID and matching description + amount + approximate timestamp
-    const seenTxKeys = new Set<string>();
-    const deduplicated: Transaction[] = [];
-
-    for (const tx of combined) {
-      if (!tx) continue;
-      const dedupeKey = tx.reference_id && (tx.type === 'WIN' || tx.type === 'BET' || tx.type === 'REFUND')
-        ? `${tx.type}_${tx.reference_id}`
-        : tx.id || `${tx.type}_${tx.amount}_${tx.description}`;
-
-      if (!seenTxKeys.has(dedupeKey)) {
-        seenTxKeys.add(dedupeKey);
-        deduplicated.push(tx);
-      }
-    }
-
-    // Sort newest first
-    deduplicated.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-
-    // Clean up local storage so duplicate records are permanently cleared
-    try {
-      localStorage.setItem('derby_custom_txs', JSON.stringify(deduplicated));
-    } catch {}
-
-    return deduplicated;
+    return localTxs;
   },
 
   // Banners

@@ -1796,14 +1796,18 @@ app.post('/api/bets/place', async (req, res) => {
     await ensureMongoConnected();
   } catch {}
 
-  let user = db.users.find((u) => u.id === user_id);
-  if (!user) {
-    const mongoUser = await UserModel.findOne({ id: user_id }).lean().catch(() => null);
+  let user = db.users.find((u) => u.id === user_id || u.username === user_id);
+  try {
+    const mongoUser = await UserModel.findOne({
+      $or: [{ id: user_id }, { username: user_id }, { phone: user_id }],
+    }).lean().catch(() => null);
     if (mongoUser) {
       user = mongoUser as any;
-      db.users.push(user!);
+      const idx = db.users.findIndex((u) => u.id === user!.id || u.username === user!.username);
+      if (idx >= 0) db.users[idx] = user!;
+      else db.users.push(user!);
     }
-  }
+  } catch {}
 
   if (!user) {
     return res.status(404).json({ error: 'User not found. Please log in.' });
@@ -1937,7 +1941,10 @@ app.post('/api/bets/place', async (req, res) => {
     await ensureMongoConnected();
     await Promise.all([
       BetModel.create(newBet),
-      UserModel.updateOne({ id: user.id }, { $set: { balance: user.balance, exposure: user.exposure } }),
+      UserModel.updateOne(
+        { $or: [{ id: user.id }, { username: user.username }, { phone: user.phone }] },
+        { $set: { balance: user.balance, exposure: user.exposure } }
+      ),
       TransactionModel.create(tx),
     ]);
   } catch (err: any) {

@@ -1777,41 +1777,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Temporary odds storage for live editing
   const [tempOdds, setTempOdds] = useState<Record<string, { win_odds: number | string; place_odds: number | string }>>({});
 
-  const handleUpdateOdds = async (horseId: string, winOdds: number, placeOdds: number) => {
+  const handleUpdateOdds = async (horseId: string, winOdds: number, placeOdds: number, raceId?: string) => {
     try {
       soundManager.playChip();
       const nowIso = new Date().toISOString();
+      const targetRaceId = raceId || races.find((r) => r.horses?.some((h) => h.id === horseId))?.id;
       // 0ms instant local update + record odds history log
       setRaces((prev) =>
-        prev.map((r) => ({
-          ...r,
-          horses: r.horses.map((h) => {
-            if (h.id === horseId) {
-              const prevWin = h.win_odds;
-              const prevPlace = h.place_odds;
-              const historyLog = {
-                timestamp: nowIso,
-                updated_at: nowIso,
-                win_odds: winOdds,
-                place_odds: placeOdds,
-                old_win: prevWin,
-                old_place: prevPlace,
-                changed_by: 'Master Admin'
-              };
-              const newHist = [historyLog, ...(h.odds_history || [])].slice(0, 30);
-              return {
-                ...h,
-                win_odds: winOdds,
-                place_odds: placeOdds,
-                odds_history: newHist,
-              };
-            }
-            return h;
-          }),
-        }))
+        prev.map((r) => {
+          if (targetRaceId && r.id !== targetRaceId) return r;
+          return {
+            ...r,
+            horses: r.horses.map((h) => {
+              if (h.id === horseId) {
+                const prevWin = h.win_odds;
+                const prevPlace = h.place_odds;
+                const historyLog = {
+                  timestamp: nowIso,
+                  updated_at: nowIso,
+                  win_odds: winOdds,
+                  place_odds: placeOdds,
+                  old_win: prevWin,
+                  old_place: prevPlace,
+                  changed_by: 'Master Admin'
+                };
+                const newHist = [historyLog, ...(h.odds_history || [])].slice(0, 30);
+                return {
+                  ...h,
+                  win_odds: winOdds,
+                  place_odds: placeOdds,
+                  odds_history: newHist,
+                };
+              }
+              return h;
+            }),
+          };
+        })
       );
       notify(`Odds updated: WIN ${winOdds.toFixed(2)}x / PLACE ${placeOdds.toFixed(2)}x`, 'success');
-      api.updateHorseOdds(horseId, winOdds, placeOdds, activeRace?.id).then(() => {
+      api.updateHorseOdds(horseId, winOdds, placeOdds, targetRaceId).then(() => {
         onRefreshData();
       }).catch((err) => {
         notify(err.message || 'Failed to update odds', 'error');
