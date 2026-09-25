@@ -2833,6 +2833,8 @@ app.post('/api/admin/races/:id/settle', async (req, res) => {
         totalPayout += betPayout;
         uChange.deltaBalance += betPayout;
 
+        const memUser = db.users.find((u) => u.id === targetUserId || u.username === targetUserId);
+        const currentBal = memUser ? (Number(memUser.balance) || 0) : 0;
         const winDesc = betIsDeadHeat 
           ? `Payout WON (Dead Heat 1/${deadHeatDivider}): ${bet.bet_type} bet on #${bet.horse_no || ''} ${bet.horse_name || ''} in ${race.name} (₹${betPayout.toLocaleString('en-IN')})`
           : `Payout WON: ${bet.bet_type} bet on #${bet.horse_no || ''} ${bet.horse_name || ''} in ${race.name} (Odds: ${bet.odds})`;
@@ -2843,7 +2845,7 @@ app.post('/api/admin/races/:id/settle', async (req, res) => {
           username: bet.username || 'user',
           type: 'WIN',
           amount: betPayout,
-          balance_after: 0,
+          balance_after: currentBal + uChange.deltaBalance,
           description: winDesc,
           created_at: settledAt,
           reference_id: bet.id,
@@ -2878,14 +2880,25 @@ app.post('/api/admin/races/:id/settle', async (req, res) => {
     }
 
     try {
-      const mongoUser = await UserModel.findOne({ $or: [{ id: uid }, { username: uid }, { phone: uid }] });
-      if (mongoUser) {
-        const newBal = Math.max(0, (mongoUser.balance || 0) + change.deltaBalance);
-        const newExp = Math.max(0, (mongoUser.exposure || 0) + change.deltaExposure);
-        await UserModel.updateOne(
-          { _id: mongoUser._id },
-          { $set: { balance: newBal, exposure: newExp } }
-        );
+      const updatedUser = await UserModel.findOneAndUpdate(
+        { $or: [{ id: uid }, { username: uid }, { phone: uid }] },
+        {
+          $inc: {
+            balance: change.deltaBalance,
+            exposure: change.deltaExposure,
+          }
+        },
+        { new: true }
+      );
+      if (updatedUser) {
+        if (updatedUser.exposure < 0) {
+          updatedUser.exposure = 0;
+          await UserModel.updateOne({ _id: updatedUser._id }, { $set: { exposure: 0 } });
+        }
+        if (memUser) {
+          memUser.balance = updatedUser.balance;
+          memUser.exposure = updatedUser.exposure;
+        }
       }
     } catch (err: any) {
       console.warn('User balance sync error in settle:', err.message);
@@ -3850,13 +3863,23 @@ app.post('/api/admin/deposits/:id/approve', async (req, res) => {
     }
 
     const depositAmt = Number(reqItem.amount) || 0;
-    if (user) {
+    const targetFilter = user 
+      ? { $or: [{ id: user.id }, { username: user.username }, { phone: user.phone }] }
+      : { $or: [{ id: reqItem.user_id }, { username: reqItem.username }, { phone: reqItem.user_id }, { ref_id: reqItem.user_id }] };
+
+    const updatedUserDoc = await UserModel.findOneAndUpdate(
+      targetFilter,
+      { $inc: { balance: depositAmt } },
+      { new: true }
+    ).catch(() => null);
+
+    if (updatedUserDoc) {
+      user = updatedUserDoc as any;
+      const idx = db.users.findIndex((u) => u.id === user!.id || u.username === user!.username);
+      if (idx >= 0) db.users[idx] = user!;
+      else db.users.push(user!);
+    } else if (user) {
       user.balance = (Number(user.balance) || 0) + depositAmt;
-      await UserModel.findOneAndUpdate(
-        { $or: [{ id: user.id }, { username: user.username }, { phone: user.phone }] },
-        { $set: { balance: user.balance } },
-        { new: true }
-      ).catch(() => {});
     }
 
     const newTx: Transaction = {
