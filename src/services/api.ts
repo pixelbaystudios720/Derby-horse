@@ -2865,6 +2865,9 @@ export const api = {
         // Clear local storage races and bets
         localStorage.removeItem('derby_custom_races');
         localStorage.removeItem('derby_custom_bets');
+        localStorage.removeItem('derby_races');
+        localStorage.removeItem('derby_admin_bets');
+        
         // Filter local transactions to keep only deposits
         let localTxs: Transaction[] = [];
         try {
@@ -2873,6 +2876,21 @@ export const api = {
         } catch {}
         const cleanTxs = localTxs.filter((t) => t.type === 'DEPOSIT');
         localStorage.setItem('derby_custom_txs', JSON.stringify(cleanTxs));
+
+        // Reconcile current user balance to total approved deposits
+        try {
+          const saved = localStorage.getItem('derby_user');
+          if (saved) {
+            const u = JSON.parse(saved);
+            const depTotal = cleanTxs.reduce((sum, t) => sum + (t.amount > 0 ? t.amount : 0), 0);
+            u.balance = depTotal > 0 ? depTotal : 5000;
+            u.exposure = 0;
+            localStorage.setItem('derby_user', JSON.stringify(u));
+          }
+        } catch {}
+
+        financialSync.broadcast();
+        realtimeOdds.broadcast({ event: 'RACE_STATUS_CHANGED', timestamp: Date.now() });
         return data;
       }
     } catch {}
@@ -2880,6 +2898,8 @@ export const api = {
     // Fallback local cleanup
     localStorage.removeItem('derby_custom_races');
     localStorage.removeItem('derby_custom_bets');
+    localStorage.removeItem('derby_races');
+    localStorage.removeItem('derby_admin_bets');
     let localTxs: Transaction[] = [];
     try {
       const raw = localStorage.getItem('derby_custom_txs');
@@ -2887,6 +2907,20 @@ export const api = {
     } catch {}
     const cleanTxs = localTxs.filter((t) => t.type === 'DEPOSIT');
     localStorage.setItem('derby_custom_txs', JSON.stringify(cleanTxs));
+
+    try {
+      const saved = localStorage.getItem('derby_user');
+      if (saved) {
+        const u = JSON.parse(saved);
+        const depTotal = cleanTxs.reduce((sum, t) => sum + (t.amount > 0 ? t.amount : 0), 0);
+        u.balance = depTotal > 0 ? depTotal : 5000;
+        u.exposure = 0;
+        localStorage.setItem('derby_user', JSON.stringify(u));
+      }
+    } catch {}
+
+    financialSync.broadcast();
+    realtimeOdds.broadcast({ event: 'RACE_STATUS_CHANGED', timestamp: Date.now() });
 
     return {
       success: true,

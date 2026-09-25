@@ -3473,7 +3473,7 @@ app.post("/api/admin/reset-races-keep-deposits", async (req, res) => {
         (d) => d.user_id === user.id || d.username === user.username
       );
       const depTotal = userDeps.reduce((sum, d) => sum + (d.amount || 0), 0);
-      const finalBalance = depTotal > 0 ? depTotal + 50 : 50;
+      const finalBalance = depTotal > 0 ? depTotal : 50;
       await UserModel.updateOne(
         { id: user.id },
         {
@@ -3496,7 +3496,7 @@ app.post("/api/admin/reset-races-keep-deposits", async (req, res) => {
         (d) => (d.user_id === u.id || d.username === u.username) && d.status === "APPROVED"
       );
       const depTotal = uDeps.reduce((sum, d) => sum + (d.amount || 0), 0);
-      u.balance = depTotal > 0 ? depTotal + 50 : 50;
+      u.balance = depTotal > 0 ? depTotal : 50;
       u.exposure = 0;
     }
   });
