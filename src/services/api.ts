@@ -369,6 +369,51 @@ export const api = {
     return null;
   },
 
+  async getAdminOverview(): Promise<{
+    totalUsers: number;
+    totalBets: number;
+    totalVolume: number;
+    openRaces: number;
+    pendingBetsCount: number;
+  }> {
+    try {
+      const res = await fetch(`${API_BASE}/admin/overview`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.stats) return data.stats;
+      }
+    } catch {}
+
+    const [users, races, bets] = await Promise.all([
+      this.getUsers().catch(() => []),
+      this.getRaces('all').catch(() => []),
+      this.getAllBets().catch(() => []),
+    ]);
+
+    const realUsers = (users || []).filter((u) => u.role !== 'admin');
+    const realVolume = (bets || []).reduce((s, b) => s + (b.stake || 0), 0);
+    const pendingBets = (bets || []).filter((b) => b.status === 'PENDING');
+
+    return {
+      totalUsers: realUsers.length,
+      totalBets: (bets || []).length,
+      totalVolume: realVolume,
+      openRaces: (races || []).filter((r) => r.status === 'OPEN' || r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING').length,
+      pendingBetsCount: pendingBets.length,
+    };
+  },
+
+  async getAdminAllBets(): Promise<Bet[]> {
+    try {
+      const res = await fetch(`${API_BASE}/admin/bets`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.bets)) return data.bets;
+      }
+    } catch {}
+    return this.getAllBets().catch(() => []);
+  },
+
   async adjustUserBalance(userId: string, amount: number, type: 'CREDIT' | 'DEBIT', description?: string): Promise<{ success: boolean; message: string; user?: User }> {
     const res = await fetch(`${API_BASE}/admin/users/${userId}/adjust-balance`, {
       method: 'POST',
@@ -1791,41 +1836,6 @@ export const api = {
     } catch {}
   },
 
-  // Admin
-  async getAdminOverview(): Promise<{
-    totalUsers: number;
-    totalBets: number;
-    totalVolume: number;
-    openRaces: number;
-    pendingBetsCount: number;
-  }> {
-    try {
-      const res = await fetch(`${API_BASE}/admin/overview`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.stats) return data.stats;
-      }
-    } catch {}
-
-    const [users, races, bets] = await Promise.all([
-      this.getUsers().catch(() => []),
-      this.getRaces('all').catch(() => []),
-      this.getAllBets().catch(() => []),
-    ]);
-
-    const realUsers = (users || []).filter((u) => u.role !== 'admin');
-    const realVolume = (bets || []).reduce((s, b) => s + (b.stake || 0), 0);
-    const pendingBets = (bets || []).filter((b) => b.status === 'PENDING');
-
-    return {
-      totalUsers: realUsers.length,
-      totalBets: (bets || []).length,
-      totalVolume: realVolume,
-      openRaces: (races || []).filter((r) => r.status === 'OPEN' || r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING').length,
-      pendingBetsCount: pendingBets.length,
-    };
-  },
-
   async createRace(raceData: any): Promise<Race> {
     const raceId = raceData.id || `race_custom_${Date.now()}`;
     const parsedHorses = (raceData.horses || []).map((h: any, index: number) => {
@@ -2566,17 +2576,6 @@ export const api = {
       settledCount,
       totalPaidOut
     };
-  },
-
-  async getAdminAllBets(): Promise<Bet[]> {
-    try {
-      const res = await fetch(`${API_BASE}/admin/bets`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data.bets)) return data.bets;
-      }
-    } catch {}
-    return [];
   },
 
   async abandonRace(raceId: string, reason?: string): Promise<{ success: boolean; message: string; refundedCount: number; totalRefunded: number }> {

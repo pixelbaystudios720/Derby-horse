@@ -2074,13 +2074,15 @@ app.get('/api/wallet/transactions', async (req, res) => {
   }
   try {
     await ensureMongoConnected();
-    const mongoTxs = await TransactionModel.find({ user_id: userId }).sort({ created_at: -1 }).lean().catch(() => []);
+    const mongoTxs = await TransactionModel.find({ 
+      $or: [{ user_id: userId }, { username: userId }] 
+    }).sort({ created_at: -1 }).lean().catch(() => []);
     if (mongoTxs && mongoTxs.length > 0) {
       return res.json({ success: true, transactions: mongoTxs });
     }
   } catch {}
 
-  const txs = db.transactions.filter((t) => t.user_id === userId);
+  const txs = db.transactions.filter((t) => t.user_id === userId || t.username === userId);
   return res.json({ success: true, transactions: txs });
 });
 
@@ -2161,6 +2163,140 @@ app.delete('/api/banners/:id', (req, res) => {
 // ----------------------------------------------------
 // ADMIN APIS
 // ----------------------------------------------------
+
+// Unified Admin Bootstrap endpoint (returns all admin operational data in 1 request)
+app.get('/api/admin/bootstrap', async (req, res) => {
+  try {
+    await ensureMongoConnected();
+    const [mongoUsers, mongoBets, mongoDeps, mongoWths, mongoRaces, mongoCenters, mongoDays] = await Promise.all([
+      UserModel.find({}).sort({ created_at: -1 }).lean().catch(() => []),
+      BetModel.find({}).sort({ placed_at: -1 }).limit(500).lean().catch(() => []),
+      DepositRequestModel.find({}).sort({ created_at: -1 }).limit(200).lean().catch(() => []),
+      WithdrawalRequestModel.find({}).sort({ created_at: -1 }).limit(200).lean().catch(() => []),
+      RaceModel.find({}).sort({ race_time: 1 }).lean().catch(() => []),
+      RaceCenterModel.find({}).sort({ order: 1 }).lean().catch(() => []),
+      RaceDayModel.find({}).sort({ race_date: 1 }).lean().catch(() => []),
+    ]);
+
+    const users = (mongoUsers && mongoUsers.length > 0) ? mongoUsers : (db.users || []);
+    const safeUsers = users.map(({ password_hash, ...u }: any) => u);
+    const bets = (mongoBets && mongoBets.length > 0) ? mongoBets : (db.bets || []);
+    const deposits = (mongoDeps && mongoDeps.length > 0) ? mongoDeps : (db.deposit_requests || []);
+    const withdrawals = (mongoWths && mongoWths.length > 0) ? mongoWths : (db.withdrawal_requests || []);
+    const races = (mongoRaces && mongoRaces.length > 0) ? mongoRaces : (db.races || []);
+    const centers = (mongoCenters && mongoCenters.length > 0) ? mongoCenters : (db.race_centers || []);
+    const days = (mongoDays && mongoDays.length > 0) ? mongoDays : (db.race_days || []);
+
+    const realUsers = safeUsers.filter((u: any) => u.role !== 'admin' && u.username !== 'admin');
+    const realVolume = bets.reduce((s: number, b: any) => s + (b.stake || b.amount || 0), 0);
+    const pendingBets = bets.filter((b: any) => b.status === 'PENDING');
+    const openRaces = races.filter((r: any) => r.status === 'OPEN' || r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING');
+
+    return res.json({
+      success: true,
+      stats: {
+        totalUsers: realUsers.length,
+        totalBets: bets.length,
+        totalVolume: realVolume,
+        openRaces: openRaces.length,
+        pendingBetsCount: pendingBets.length,
+      },
+      users: safeUsers,
+      bets,
+      deposits,
+      withdrawals,
+      race_centers: centers.length > 0 ? centers : undefined,
+      race_days: days,
+      system_settings: db.system_settings || { betting_enabled: true, max_bet_per_horse: 50000, max_win_per_race: 500000, min_bet_amount: 100, sub_admins: [] },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Bootstrap failed' });
+  }
+});
+
+// Admin Overview Metrics
+app.get('/api/admin/overview', async (req, res) => {
+  try {
+    await ensureMongoConnected();
+    const [mongoUsers, mongoBets, mongoRaces] = await Promise.all([
+      UserModel.find({}).lean().catch(() => []),
+      BetModel.find({}).lean().catch(() => []),
+      RaceModel.find({}).lean().catch(() => []),
+    ]);
+    const users = (mongoUsers && mongoUsers.length > 0) ? mongoUsers : (db.users || []);
+    const bets = (mongoBets && mongoBets.length > 0) ? mongoBets : (db.bets || []);
+    const races = (mongoRaces && mongoRaces.length > 0) ? mongoRaces : (db.races || []);
+    const realUsers = users.filter((u: any) => u.role !== 'admin' && u.username !== 'admin');
+    const realVolume = bets.reduce((s: number, b: any) => s + (b.stake || b.amount || 0), 0);
+    const pendingBets = bets.filter((b: any) => b.status === 'PENDING');
+    const openRaces = races.filter((r: any) => r.status === 'OPEN' || r.status === 'LIVE' || r.status === 'OPEN_FOR_BETTING');
+    return res.json({
+      success: true,
+      stats: {
+        totalUsers: realUsers.length,
+        totalBets: bets.length,
+        totalVolume: realVolume,
+        openRaces: openRaces.length,
+        pendingBetsCount: pendingBets.length,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || 'Overview failed' });
+  }
+});
+
+// Admin All Bets (sorted latest placed first)
+app.get('/api/admin/bets', async (req, res) => {
+  try {
+    await ensureMongoConnected();
+    const mongoBets = await BetModel.find({}).sort({ placed_at: -1 }).limit(500).lean().catch(() => []);
+    if (mongoBets && mongoBets.length > 0) {
+      return res.json({ success: true, bets: mongoBets });
+    }
+    const bets = (db.bets || []).slice().sort((a, b) => new Date(b.placed_at || b.created_at || 0).getTime() - new Date(a.placed_at || a.created_at || 0).getTime());
+    return res.json({ success: true, bets });
+  } catch (err: any) {
+    return res.json({ success: true, bets: db.bets || [] });
+  }
+});
+
+// Admin All Users
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    await ensureMongoConnected();
+    const mongoUsers = await UserModel.find({}).sort({ created_at: -1 }).lean().catch(() => []);
+    const users = (mongoUsers && mongoUsers.length > 0) ? mongoUsers : (db.users || []);
+    const safeUsers = users.map(({ password_hash, ...u }: any) => u);
+    return res.json({ success: true, users: safeUsers });
+  } catch (err: any) {
+    const safeUsers = (db.users || []).map(({ password_hash, ...u }: any) => u);
+    return res.json({ success: true, users: safeUsers });
+  }
+});
+
+// Admin Deposits
+app.get('/api/admin/deposits', async (req, res) => {
+  try {
+    await ensureMongoConnected();
+    const mongoDeposits = await DepositRequestModel.find({}).sort({ created_at: -1 }).lean().catch(() => []);
+    const list = (mongoDeposits && mongoDeposits.length > 0) ? mongoDeposits : (db.deposit_requests || []);
+    return res.json({ success: true, deposits: list });
+  } catch (err: any) {
+    return res.json({ success: true, deposits: db.deposit_requests || [] });
+  }
+});
+
+// Admin Withdrawals
+app.get('/api/admin/withdrawals', async (req, res) => {
+  try {
+    await ensureMongoConnected();
+    const mongoWithdrawals = await WithdrawalRequestModel.find({}).sort({ created_at: -1 }).lean().catch(() => []);
+    const list = (mongoWithdrawals && mongoWithdrawals.length > 0) ? mongoWithdrawals : (db.withdrawal_requests || []);
+    return res.json({ success: true, withdrawals: list });
+  } catch (err: any) {
+    return res.json({ success: true, withdrawals: db.withdrawal_requests || [] });
+  }
+});
 
 // 2. Add Race with Horses & Odds (Manual Admin Entry)
 app.post('/api/admin/races', async (req, res) => {

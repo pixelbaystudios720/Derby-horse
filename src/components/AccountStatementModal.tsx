@@ -37,7 +37,7 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
   const [activeTab, setActiveTab] = useState<'all' | 'deposits' | 'withdrawals'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Strict deduplication of transactions
+  // Strict deduplication & date descending sort of transactions
   const uniqueTransactions = React.useMemo(() => {
     const seen = new Set<string>();
     const result: Transaction[] = [];
@@ -45,14 +45,22 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
       if (!tx) return;
       const dedupeKey = tx.reference_id && (tx.type === 'WIN' || tx.type === 'BET' || tx.type === 'REFUND')
         ? `${tx.type}_${tx.reference_id}`
-        : tx.id || `${tx.type}_${tx.amount}_${tx.description}`;
+        : tx.id || `${tx.type}_${tx.amount}_${tx.description}_${tx.created_at}`;
       if (!seen.has(dedupeKey)) {
         seen.add(dedupeKey);
         result.push(tx);
       }
     });
-    return result;
+    return result.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
   }, [transactions]);
+
+  const sortedDepositRequests = React.useMemo(() => {
+    return [...depositRequests].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  }, [depositRequests]);
+
+  const sortedWithdrawalRequests = React.useMemo(() => {
+    return [...withdrawalRequests].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  }, [withdrawalRequests]);
 
   if (!isOpen) return null;
 
@@ -160,13 +168,13 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
               <p className="text-sm">Loading ledger & payment statuses...</p>
             </div>
           ) : activeTab === 'deposits' ? (
-            depositRequests.length === 0 ? (
+            sortedDepositRequests.length === 0 ? (
               <div className="text-center py-16 bg-[#040805] rounded-2xl p-6 border border-emerald-950">
                 <ArrowDownLeft className="w-10 h-10 text-slate-600 mx-auto mb-2" />
                 <p className="text-sm font-semibold text-slate-400">No deposit requests recorded</p>
               </div>
             ) : (
-              depositRequests.map((dep) => {
+              sortedDepositRequests.map((dep) => {
                 const isApproved = dep.status === 'APPROVED';
                 const isPending = dep.status === 'PENDING';
                 const isRejected = dep.status === 'REJECTED';
@@ -249,13 +257,13 @@ export const AccountStatementModal: React.FC<AccountStatementModalProps> = ({
               })
             )
           ) : activeTab === 'withdrawals' ? (
-            withdrawalRequests.length === 0 ? (
+            sortedWithdrawalRequests.length === 0 ? (
               <div className="text-center py-16 bg-[#040805] rounded-2xl p-6 border border-emerald-950">
                 <ArrowUpRight className="w-10 h-10 text-slate-600 mx-auto mb-2" />
                 <p className="text-sm font-semibold text-slate-400">No withdrawal requests recorded</p>
               </div>
             ) : (
-              withdrawalRequests.map((wth) => {
+              sortedWithdrawalRequests.map((wth) => {
                 const isSuccess = wth.status === 'SUCCESSFUL';
                 const isInProgress = wth.status === 'IN_PROGRESS';
                 const isPending = wth.status === 'PENDING';

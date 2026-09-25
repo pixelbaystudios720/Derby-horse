@@ -54,10 +54,11 @@ export const MyBets: React.FC<MyBetsProps> = ({
 }) => {
   const [filter, setFilter] = useState<MyBetsFilter>('ALL');
 
-  // Group bets by Race / Contest
+  // Group bets by Race / Contest (sorted strictly with date descending)
   const allGroupedContests: RaceBetGroup[] = useMemo(() => {
     const map = new Map<string, RaceBetGroup>();
-    for (const bet of bets) {
+    const sortedBets = [...bets].sort((a, b) => new Date(b.placed_at || b.created_at || 0).getTime() - new Date(a.placed_at || a.created_at || 0).getTime());
+    for (const bet of sortedBets) {
       const key = bet.race_id || bet.race_name || 'general_contest';
       if (!map.has(key)) {
         map.set(key, {
@@ -97,6 +98,7 @@ export const MyBets: React.FC<MyBetsProps> = ({
 
     const list = Array.from(map.values());
     list.forEach((g) => {
+      g.bets.sort((a, b) => new Date(b.placed_at || b.created_at || 0).getTime() - new Date(a.placed_at || a.created_at || 0).getTime());
       g.isCompleted = g.pendingCount === 0 && (g.hasWon || g.hasLost);
       g.netPnL = g.totalPayout - g.totalStake;
     });

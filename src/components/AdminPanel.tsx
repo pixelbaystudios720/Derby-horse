@@ -728,16 +728,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           setStats((prev: any) => (JSON.stringify(prev) === JSON.stringify(bootstrap.stats) ? prev : bootstrap.stats));
         }
         if (Array.isArray(bootstrap.users)) {
-          setUsers((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.users) ? prev : bootstrap.users));
+          const sorted = [...bootstrap.users].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+          setUsers((prev) => (JSON.stringify(prev) === JSON.stringify(sorted) ? prev : sorted));
         }
         if (Array.isArray(bootstrap.bets)) {
-          setAllBets((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.bets) ? prev : bootstrap.bets));
+          const sorted = [...bootstrap.bets].sort((a, b) => new Date(b.placed_at || b.created_at || 0).getTime() - new Date(a.placed_at || a.created_at || 0).getTime());
+          setAllBets((prev) => (JSON.stringify(prev) === JSON.stringify(sorted) ? prev : sorted));
         }
         if (Array.isArray(bootstrap.deposits)) {
-          setDepositRequests((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.deposits) ? prev : bootstrap.deposits));
+          const sorted = [...bootstrap.deposits].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+          setDepositRequests((prev) => (JSON.stringify(prev) === JSON.stringify(sorted) ? prev : sorted));
         }
         if (Array.isArray(bootstrap.withdrawals)) {
-          setWithdrawalRequests((prev) => (JSON.stringify(prev) === JSON.stringify(bootstrap.withdrawals) ? prev : bootstrap.withdrawals));
+          const sorted = [...bootstrap.withdrawals].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+          setWithdrawalRequests((prev) => (JSON.stringify(prev) === JSON.stringify(sorted) ? prev : sorted));
         }
         const validCenters = (Array.isArray(bootstrap.race_centers) && bootstrap.race_centers.length > 0)
           ? bootstrap.race_centers
@@ -785,18 +789,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         try { localStorage.setItem('derby_admin_stats', JSON.stringify(resStats.value)); } catch {}
       }
       if (resUsers.status === 'fulfilled' && Array.isArray(resUsers.value)) {
-        setUsers((prev) => (JSON.stringify(prev) === JSON.stringify(resUsers.value) ? prev : resUsers.value));
-        try { localStorage.setItem('derby_admin_users', JSON.stringify(resUsers.value)); } catch {}
+        const sorted = [...resUsers.value].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        setUsers((prev) => (JSON.stringify(prev) === JSON.stringify(sorted) ? prev : sorted));
+        try { localStorage.setItem('derby_admin_users', JSON.stringify(sorted)); } catch {}
       }
       if (resBets.status === 'fulfilled' && Array.isArray(resBets.value)) {
-        setAllBets((prev) => (JSON.stringify(prev) === JSON.stringify(resBets.value) ? prev : resBets.value));
-        try { localStorage.setItem('derby_admin_bets', JSON.stringify(resBets.value)); } catch {}
+        const sorted = [...resBets.value].sort((a, b) => new Date(b.placed_at || b.created_at || 0).getTime() - new Date(a.placed_at || a.created_at || 0).getTime());
+        setAllBets((prev) => (JSON.stringify(prev) === JSON.stringify(sorted) ? prev : sorted));
+        try { localStorage.setItem('derby_admin_bets', JSON.stringify(sorted)); } catch {}
       }
       if (resDeposits.status === 'fulfilled' && Array.isArray(resDeposits.value)) {
-        setDepositRequests((prev) => (JSON.stringify(prev) === JSON.stringify(resDeposits.value) ? prev : resDeposits.value));
+        const sorted = [...resDeposits.value].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        setDepositRequests((prev) => (JSON.stringify(prev) === JSON.stringify(sorted) ? prev : sorted));
       }
       if (resWithdrawals.status === 'fulfilled' && Array.isArray(resWithdrawals.value)) {
-        setWithdrawalRequests((prev) => (JSON.stringify(prev) === JSON.stringify(resWithdrawals.value) ? prev : resWithdrawals.value));
+        const sorted = [...resWithdrawals.value].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        setWithdrawalRequests((prev) => (JSON.stringify(prev) === JSON.stringify(sorted) ? prev : sorted));
       }
       const rawCenters = (resCenters.status === 'fulfilled' && Array.isArray(resCenters.value) && resCenters.value.length > 0)
         ? resCenters.value
