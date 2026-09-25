@@ -1811,7 +1811,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         }))
       );
       notify(`Odds updated: WIN ${winOdds.toFixed(2)}x / PLACE ${placeOdds.toFixed(2)}x`, 'success');
-      api.updateHorseOdds(horseId, winOdds, placeOdds).then(() => {
+      api.updateHorseOdds(horseId, winOdds, placeOdds, activeRace?.id).then(() => {
         onRefreshData();
       }).catch((err) => {
         notify(err.message || 'Failed to update odds', 'error');

@@ -3,7 +3,7 @@ import { Bet, BetType, Horse, Race } from '../types';
 import { SilkIcon } from './SilkIcon';
 import { OddsFormat, formatOdds } from '../utils/odds';
 import { soundManager } from '../utils/audio';
-import { realtimeOdds } from '../services/api';
+import { realtimeOdds, api } from '../services/api';
 import { 
   ArrowLeft, 
   Clock, 
@@ -81,6 +81,25 @@ export const RaceDetail: React.FC<RaceDetailProps> = ({
       }
     });
     return () => unsubscribe();
+  }, [currentRace.id]);
+
+  // Real-time live polling every 2s to guarantee zero-delay odds sync across devices/browsers
+  useEffect(() => {
+    let isMounted = true;
+    const pollInterval = setInterval(async () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      try {
+        const fresh = await api.getRace(currentRace.id);
+        if (isMounted && fresh && fresh.id === currentRace.id) {
+          setCurrentRace(fresh);
+        }
+      } catch {}
+    }, 2000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+    };
   }, [currentRace.id]);
 
   const race = currentRace;

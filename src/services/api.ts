@@ -2050,12 +2050,12 @@ export const api = {
     return this.updateRaceStatus(raceId, 'LIVE');
   },
 
-  async updateHorseOdds(horseId: string, winOdds: number, placeOdds: number): Promise<{ success: boolean; horse?: Horse; race?: Race }> {
+  async updateHorseOdds(horseId: string, winOdds: number, placeOdds: number, raceId?: string): Promise<{ success: boolean; horse?: Horse; race?: Race }> {
     try {
       const res = await fetch(`${API_BASE}/admin/horses/${horseId}/odds`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ win_odds: winOdds, place_odds: placeOdds }),
+        body: JSON.stringify({ win_odds: winOdds, place_odds: placeOdds, race_id: raceId }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -2064,6 +2064,9 @@ export const api = {
           realtimeOdds.broadcast({
             event: 'ODDS_UPDATED',
             race_id: data.race.id,
+            horse_id: horseId,
+            win_odds: winOdds,
+            place_odds: placeOdds,
             race: data.race,
             timestamp: Date.now(),
           });
@@ -2074,7 +2077,7 @@ export const api = {
 
     const allRaces = await this.getRaces('all');
     for (const r of allRaces) {
-      const h = r.horses.find(item => item.id === horseId);
+      const h = r.horses.find(item => item.id === horseId || String(item.horse_no) === horseId);
       if (h) {
         h.win_odds = winOdds;
         h.place_odds = placeOdds;
@@ -2082,6 +2085,9 @@ export const api = {
         realtimeOdds.broadcast({
           event: 'ODDS_UPDATED',
           race_id: r.id,
+          horse_id: horseId,
+          win_odds: winOdds,
+          place_odds: placeOdds,
           race: r,
           timestamp: Date.now(),
         });

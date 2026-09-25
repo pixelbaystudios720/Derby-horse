@@ -1659,7 +1659,18 @@ app.get('/api/races', async (req, res) => {
 });
 
 // GET /api/races/:id
-app.get('/api/races/:id', (req, res) => {
+app.get('/api/races/:id', async (req, res) => {
+  try {
+    await ensureMongoConnected();
+    const mongoRace = await RaceModel.findOne({ id: req.params.id }).lean();
+    if (mongoRace) {
+      const idx = db.races.findIndex((r) => r.id === req.params.id);
+      if (idx >= 0) db.races[idx] = mongoRace as any;
+      else db.races.push(mongoRace as any);
+      return res.json({ success: true, race: mongoRace });
+    }
+  } catch {}
+
   const race = db.races.find((r) => r.id === req.params.id);
   if (!race) {
     return res.status(404).json({ error: 'Race not found' });
@@ -2341,42 +2352,66 @@ app.put('/api/admin/races/:id/status', async (req, res) => {
 
 // 4. Update Horse Odds
 app.put('/api/admin/horses/:id/odds', async (req, res) => {
-  const { win_odds, place_odds, changed_by } = req.body;
+  const { win_odds, place_odds, changed_by, race_id } = req.body;
   let foundHorse: Horse | null = null;
   let foundRace: Race | null = null;
 
-  for (const race of db.races) {
-    const horse = race.horses.find((h) => h.id === req.params.id);
-    if (horse) {
-      const prevWin = horse.win_odds;
-      const prevPlace = horse.place_odds;
-      const nowIso = new Date().toISOString();
+  try {
+    await ensureMongoConnected();
+    const query: any[] = [{ 'horses.id': req.params.id }];
+    if (!isNaN(Number(req.params.id))) {
+      query.push({ 'horses.serial_no': Number(req.params.id) });
+      query.push({ 'horses.horse_no': Number(req.params.id) });
+    }
+    if (race_id) {
+      query.push({ id: race_id });
+    }
+    const mongoRace = await RaceModel.findOne({ $or: query }).lean();
+    if (mongoRace) {
+      foundRace = mongoRace as any;
+      foundHorse = foundRace!.horses.find((h: any) => h.id === req.params.id || String(h.horse_no) === req.params.id || String(h.serial_no) === req.params.id) || null;
+      const idx = db.races.findIndex((r) => r.id === foundRace!.id);
+      if (idx >= 0) db.races[idx] = foundRace!;
+      else db.races.push(foundRace!);
+    }
+  } catch (err: any) {
+    console.warn('Mongo odds lookup notice:', err.message);
+  }
 
-      if (win_odds !== undefined && !isNaN(Number(win_odds))) horse.win_odds = Number(win_odds);
-      if (place_odds !== undefined && !isNaN(Number(place_odds))) horse.place_odds = Number(place_odds);
-
-      // Record Odds History log (last 30 updates)
-      horse.odds_history = horse.odds_history || [];
-      horse.odds_history.unshift({
-        win_odds: horse.win_odds,
-        place_odds: horse.place_odds,
-        old_win: prevWin,
-        old_place: prevPlace,
-        updated_at: nowIso,
-        timestamp: nowIso,
-        changed_by: changed_by || (req as any).user?.username || 'Master Admin',
-      });
-      if (horse.odds_history.length > 30) horse.odds_history = horse.odds_history.slice(0, 30);
-
-      foundHorse = horse;
-      foundRace = race;
-      break;
+  if (!foundHorse || !foundRace) {
+    for (const race of db.races) {
+      const horse = race.horses.find((h) => h.id === req.params.id || String(h.horse_no) === req.params.id || String(h.serial_no) === req.params.id);
+      if (horse) {
+        foundHorse = horse;
+        foundRace = race;
+        break;
+      }
     }
   }
 
   if (!foundHorse || !foundRace) {
     return res.status(404).json({ error: 'Horse not found' });
   }
+
+  const prevWin = foundHorse.win_odds;
+  const prevPlace = foundHorse.place_odds;
+  const nowIso = new Date().toISOString();
+
+  if (win_odds !== undefined && !isNaN(Number(win_odds))) foundHorse.win_odds = Number(win_odds);
+  if (place_odds !== undefined && !isNaN(Number(place_odds))) foundHorse.place_odds = Number(place_odds);
+
+  // Record Odds History log (last 30 updates)
+  foundHorse.odds_history = foundHorse.odds_history || [];
+  foundHorse.odds_history.unshift({
+    win_odds: foundHorse.win_odds,
+    place_odds: foundHorse.place_odds,
+    old_win: prevWin,
+    old_place: prevPlace,
+    updated_at: nowIso,
+    timestamp: nowIso,
+    changed_by: changed_by || (req as any).user?.username || 'Master Admin',
+  });
+  if (foundHorse.odds_history.length > 30) foundHorse.odds_history = foundHorse.odds_history.slice(0, 30);
 
   saveDatabase();
 
